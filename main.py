@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from api.onboarding import router as onboarding_router
 from api.pipeline import router as pipeline_router
@@ -37,7 +38,9 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:3001",
+        "http://localhost:5173",
         "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
         # Add your production domain here
     ],
     allow_credentials=True,
@@ -45,6 +48,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.mount("/tts_output", StaticFiles(directory="tts_output"), name="tts_output")
 app.include_router(onboarding_router)
 app.include_router(pipeline_router)
 
