@@ -14,7 +14,8 @@ class PipelineSession:
     speaker: SpeakerRecognitionResult
     original_request: ProcessRequest
     llm_result: LLMResult
-    audio_bytes: bytes                  # kept for speaker save flow
+    audio_bytes: bytes
+    voice_gender: Optional[str] = None          # set from onboarding / /process form field
     created_at: datetime = field(default_factory=datetime.utcnow)
 
     def is_expired(self) -> bool:
@@ -22,12 +23,6 @@ class PipelineSession:
 
 
 class SessionStore:
-    """
-    Simple in-memory store for pipeline sessions.
-    Sessions expire after 10 minutes.
-    At hackathon scale this is fine; swap for Redis if needed.
-    """
-
     def __init__(self):
         self._store: dict[str, PipelineSession] = {}
 
@@ -39,6 +34,7 @@ class SessionStore:
         original_request: ProcessRequest,
         llm_result: LLMResult,
         audio_bytes: bytes,
+        voice_gender: Optional[str] = None,     # new — carries onboarding choice forward
     ) -> PipelineSession:
         session_id = str(uuid.uuid4())
         session = PipelineSession(
@@ -49,6 +45,7 @@ class SessionStore:
             original_request=original_request,
             llm_result=llm_result,
             audio_bytes=audio_bytes,
+            voice_gender=voice_gender,
         )
         self._store[session_id] = session
         return session
@@ -63,7 +60,6 @@ class SessionStore:
         return session
 
     def update_llm(self, session_id: str, llm_result: LLMResult) -> Optional[PipelineSession]:
-        """Called on deny-regen to update the LLM result in place."""
         session = self.get(session_id)
         if session is None:
             return None
@@ -80,5 +76,4 @@ class SessionStore:
         return len(expired)
 
 
-# Singleton — imported by routers
 session_store = SessionStore()
