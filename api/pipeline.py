@@ -313,7 +313,7 @@ async def process_audio(
         relationship_source = "default"
 
     llm_result = await llm.generate(
-        transcript=transcript_result.text,
+        transcript=transcript_result.transcript,
         speaker_name=speaker_result.name,
         relationship=effective_relationship,
         mood_override=mood_override,
@@ -321,8 +321,8 @@ async def process_audio(
     )
 
     session = session_store.create(
-        transcript=transcript_result.text,
-        detected_language=transcript_result.language,
+        transcript=transcript_result.transcript,
+        detected_language=transcript_result.detected_language,
         speaker=speaker_result,
         original_request=_make_process_request(
             effective_relationship, mood_override, extra_text, speaker_name_if_new
@@ -333,8 +333,8 @@ async def process_audio(
     )
 
     return ProcessResponse(
-        transcript=transcript_result.text,
-        detected_language=transcript_result.language,
+        transcript=transcript_result.transcript,
+        detected_language=transcript_result.detected_language,
         speaker=speaker_result,
         save_voice_prompt=speaker_result.is_new_speaker,
         effective_relationship=effective_relationship,
