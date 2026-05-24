@@ -1,5 +1,5 @@
 """
-llm/service.py — Gemini 2.0 Flash LLM for Awaaz v2
+llm/service.py - Groq Llama LLM for Awaaz v2
 
 If a user profile exists (onboarding completed):
   - System prompt = profile.llm_system_prompt  (personality-tuned)
@@ -11,11 +11,9 @@ If no profile exists (fallback):
 """
 
 import json
-import asyncio
 from typing import Optional
 
-from google import genai
-from google.genai import types
+from groq import AsyncGroq
 
 from core.config import get_settings
 from core.models import LLMResult, Relationship
@@ -67,7 +65,7 @@ Schema:
 
 class LLMService:
     """
-    Gemini 2.0 Flash — tone detection + expressive Hinglish generation.
+    Groq-hosted Llama - tone detection + expressive Hinglish generation.
 
     On init, checks for a user profile and builds a personalised system prompt.
     Call reload_profile() if profile changes at runtime (e.g. after onboarding).
@@ -75,27 +73,35 @@ class LLMService:
 
     def __init__(self):
         settings = get_settings()
-        self._client = genai.Client(api_key=settings.gemini_api_key)
-        self._model  = "gemini-2.0-flash"
+        self._client = AsyncGroq(api_key=settings.groq_api_key)
+        self._model = settings.groq_llm_model
         self._build_config()
 
     def _build_config(self):
-        """Build GenerateContentConfig from user profile (or fallback)."""
+        """Build the system prompt from user profile (or fallback)."""
         profile = user_profile_store.get()
 
         if profile:
-            system_prompt = profile.llm_system_prompt
+            personality_traits = profile.personality.to_dict()
+            traits_text = "\n".join(
+                f"- {key}: {value}" for key, value in personality_traits.items()
+            )
+            custom_vibe = profile.custom_vibe.strip() or "none"
+            self._system_prompt = (
+                f"{profile.llm_system_prompt}\n\n"
+                "EXTRACTED PERSONALITY TRAITS (always use these when replying):\n"
+                f"{traits_text}\n"
+                f"- custom_vibe: {custom_vibe}\n"
+                f"- voice_gender: {profile.voice_gender}"
+            )
             self._profile_name = profile.name
+            self._personality_traits = personality_traits
+            self._custom_vibe = profile.custom_vibe.strip()
         else:
-            system_prompt = FALLBACK_SYSTEM_PROMPT
+            self._system_prompt = FALLBACK_SYSTEM_PROMPT
             self._profile_name = None
-
-        self._config = types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=0.85,
-            max_output_tokens=512,
-            response_mime_type="application/json",
-        )
+            self._personality_traits = None
+            self._custom_vibe = ""
 
     def reload_profile(self):
         """Call this after onboarding completes to pick up the new profile."""
@@ -109,6 +115,7 @@ class LLMService:
         self,
         transcript: str,
         relationship: Relationship,
+        speaker_name: Optional[str] = None,
         mood_override: Optional[str] = None,
         extra_text: Optional[str] = None,
     ) -> LLMResult:
@@ -118,25 +125,30 @@ class LLMService:
         Args:
             transcript:    STT output — what the user said.
             relationship:  Context for tone calibration.
+            speaker_name:  Identified speaker name, if known.
             mood_override: Force a specific emotion in the reply.
             extra_text:    Optional extra instruction.
 
         Returns:
             LLMResult with expressive_text, detected_mood, reasoning.
         """
-        prompt = self._build_prompt(transcript, relationship, mood_override, extra_text)
-        loop   = asyncio.get_running_loop()
-
-        response = await loop.run_in_executor(
-            None,
-            lambda: self._client.models.generate_content(
-                model=self._model,
-                contents=prompt,
-                config=self._config,
-            ),
+        prompt = self._build_prompt(
+            transcript, relationship, speaker_name, mood_override, extra_text
         )
 
-        return self._parse_response(response.text)
+        response = await self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": self._system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.85,
+            max_tokens=512,
+            response_format={"type": "json_object"},
+        )
+
+        content = response.choices[0].message.content
+        return self._parse_response(content or "")
 
     # ------------------------------------------------------------------
     # Internal
@@ -146,6 +158,7 @@ class LLMService:
         self,
         transcript: str,
         relationship: Relationship,
+        speaker_name: Optional[str],
         mood_override: Optional[str],
         extra_text: Optional[str],
     ) -> str:
@@ -157,10 +170,21 @@ class LLMService:
             f'Message: "{transcript}"',
             f"Relationship: {relationship.value}",
         ]
+        if speaker_name:
+            lines.append(f"Identified speaker name: {speaker_name}")
 
         # Per-call personality reinforcement from profile
         if self._profile_name:
-            lines.append(f"Replying as {self._profile_name}'s voice assistant — stay true to their personality profile.")
+            lines.append(
+                f"Replying as {self._profile_name}'s voice assistant - stay true to their personality profile."
+            )
+        if self._personality_traits:
+            traits = ", ".join(
+                f"{key}={value}" for key, value in self._personality_traits.items()
+            )
+            lines.append(f"Extracted personality traits: {traits}")
+        if self._custom_vibe:
+            lines.append(f"Custom vibe refinement: {self._custom_vibe}")
 
         if mood_override and mood_override != "auto":
             lines.append(
@@ -180,7 +204,7 @@ class LLMService:
         try:
             data = json.loads(clean)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Gemini returned non-JSON: {raw!r}") from e
+            raise ValueError(f"Groq Llama returned non-JSON: {raw!r}") from e
         return LLMResult(
             expressive_text=data["expressive_text"],
             detected_mood=data["detected_mood"],

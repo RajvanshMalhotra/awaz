@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.onboarding import router as onboarding_router
 from api.pipeline import router as pipeline_router
 from core.session_store import session_store
 
@@ -44,6 +45,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(onboarding_router)
 app.include_router(pipeline_router)
 
 
@@ -62,5 +64,8 @@ async def root():
             "approve": "POST /pipeline/approve",
             "deny": "POST /pipeline/deny",
             "save_speaker": "POST /pipeline/save-speaker",
+            "onboarding_status": "GET /onboarding/status",
+            "save_onboarding": "POST /onboarding",
+            "clear_onboarding": "DELETE /onboarding",
         },
     }

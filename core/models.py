@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 from enum import Enum
 
 
@@ -147,3 +147,45 @@ class SaveSpeakerResponse(BaseModel):
     name: str
     relationship: Relationship
     message: str
+
+
+# ---------------------------------------------------------------------------
+# Onboarding
+# ---------------------------------------------------------------------------
+
+Energy = Literal["chill", "chaotic"]
+Filter = Literal["clean", "unfiltered"]
+Style = Literal["punchy", "dramatic"]
+Tone = Literal["sincere", "sarcastic"]
+LangLean = Literal["hindi", "english"]
+VoiceGender = Literal["female", "female_alt", "male", "male_deep"]
+
+
+class PersonalityRequest(BaseModel):
+    energy: Energy
+    filter: Filter
+    style: Style
+    tone: Tone
+    lang_lean: LangLean
+
+
+class OnboardingRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    voice_gender: VoiceGender
+    personality: PersonalityRequest
+    custom_vibe: str = Field(default="", max_length=400)
+
+
+class OnboardingResponse(BaseModel):
+    name: str
+    voice_gender: str
+    personality: dict
+    custom_vibe: str
+    llm_system_prompt: str
+    mulberry_description: str
+    silk_speaker: str
+
+
+class OnboardingStatusResponse(BaseModel):
+    completed: bool
+    profile: Optional[OnboardingResponse] = None

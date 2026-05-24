@@ -4,10 +4,10 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     groq_api_key: str
-    gemini_api_key: str
     silk_api_key: str 
     silk_default_speaker: str = "speaker_1"
     silk_default_f0_up_key: int = 0
+    user_profile_path: str = "user_profile.json"
 
     # Voice store path — where speaker voice prints are persisted
     voice_store_path: str = "voice_store/speakers.json"
@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     # Kept for backward compatibility — no longer used by speaker service
     speaker_similarity_threshold: float = 0.82
 
-    # Gemini model — swap if free tier quota exhausted (gemini-1.5-flash has separate pool)
-    gemini_model: str = "gemini-2.5-flash"
+    # Groq-hosted open model used for expressive text generation
+    groq_llm_model: str = "llama-3.3-70b-versatile"
 
     # TTS endpoint — swapped in at hackathon
     tts_endpoint: str = "http://localhost:9000/synthesize"
@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"
 
 
 @lru_cache()
