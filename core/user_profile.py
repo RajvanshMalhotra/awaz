@@ -237,17 +237,21 @@ class UserProfileStore:
         name: str,
         voice_gender: str,
         personality: Personality,
+        custom_vibe: str = "",
     ) -> UserProfile:
         if voice_gender not in VALID_VOICE_GENDERS:
             raise ValueError(f"voice_gender must be one of {VALID_VOICE_GENDERS}")
 
-        llm_prompt   = build_llm_system_prompt(name, personality)
-        mulberry_desc = build_mulberry_description(name, personality, voice_gender)
+        llm_prompt   = build_llm_system_prompt(name, personality, custom_vibe)
+        mulberry_desc = build_mulberry_description(
+            name, personality, voice_gender, custom_vibe
+        )
 
         profile = UserProfile(
             name=name.strip(),
             voice_gender=voice_gender,
             personality=personality,
+            custom_vibe=custom_vibe.strip(),
             llm_system_prompt=llm_prompt,
             mulberry_description=mulberry_desc,
         )
