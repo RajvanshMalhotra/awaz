@@ -5,6 +5,9 @@ from functools import lru_cache
 class Settings(BaseSettings):
     groq_api_key: str
     gemini_api_key: str
+    silk_api_key: str 
+    silk_default_speaker: str = "speaker_1"
+    silk_default_f0_up_key: int = 0
 
     # Voice store path — where speaker voice prints are persisted
     voice_store_path: str = "voice_store/speakers.json"
