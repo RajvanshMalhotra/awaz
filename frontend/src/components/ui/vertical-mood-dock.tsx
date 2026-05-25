@@ -36,7 +36,9 @@ export function VerticalMoodDock({ canProcess, onProcess, className }: VerticalM
   const isExpanded = selectedIdx !== null
 
   useEffect(() => {
-    if (isExpanded) setTimeout(() => inputRef.current?.focus(), 200)
+    if (!isExpanded) return
+    const id = setTimeout(() => inputRef.current?.focus(), 200)
+    return () => clearTimeout(id)
   }, [isExpanded])
 
   useEffect(() => {
@@ -130,8 +132,16 @@ export function VerticalMoodDock({ canProcess, onProcess, className }: VerticalM
         className="rounded-full px-2 py-3 bg-white dark:bg-neutral-900 shadow-2xl border border-gray-200/60 dark:border-neutral-700/60 flex flex-col items-center gap-1.5"
       >
         <motion.button
-          className="w-11 h-11 flex items-center justify-center rounded-full"
-          whileHover={hoverAnim}
+          className={cn(
+            'w-11 h-11 flex items-center justify-center rounded-full transition-shadow',
+            selectedIdx === 0 ? 'bg-white shadow-lg ring-2 ring-white/80' : MOODS[0].bg,
+          )}
+          animate={{
+            opacity: isExpanded && selectedIdx !== 0 ? 0.35 : 1,
+            scale: selectedIdx === 0 ? 1.15 : 1,
+          }}
+          transition={springFast}
+          whileHover={!isExpanded ? hoverAnim : { scale: 1.08 }}
           whileTap={{ scale: 0.92 }}
           onClick={() => handleSelect(0)}
           aria-label="Auto mood"

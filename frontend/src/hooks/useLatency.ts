@@ -1,10 +1,18 @@
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 
 export function useLatency() {
   const [elapsed, setElapsed] = useState(0)
   const [frozen, setFrozen] = useState<number | null>(null)
+  const [isRunning, setIsRunning] = useState(false)
   const startRef = useRef<number | null>(null)
   const rafRef = useRef<number | null>(null)
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+    }
+  }, [])
 
   const tick = useCallback(() => {
     if (startRef.current === null) return
@@ -17,6 +25,7 @@ export function useLatency() {
     startRef.current = Date.now()
     setElapsed(0)
     setFrozen(null)
+    setIsRunning(true)
     rafRef.current = requestAnimationFrame(tick)
   }, [tick])
 
@@ -28,6 +37,7 @@ export function useLatency() {
     const final = startRef.current !== null ? Date.now() - startRef.current : 0
     startRef.current = null
     setFrozen(final)
+    setIsRunning(false)
     return final
   }, [])
 
@@ -37,6 +47,7 @@ export function useLatency() {
     startRef.current = null
     setElapsed(0)
     setFrozen(null)
+    setIsRunning(false)
   }, [])
 
   const format = (ms: number) =>
@@ -47,7 +58,7 @@ export function useLatency() {
   return {
     elapsed,
     frozen,
-    isRunning: rafRef.current !== null,
+    isRunning,
     formatted: format(displayMs),
     displayMs,
     start,

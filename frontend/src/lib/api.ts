@@ -20,6 +20,7 @@ export interface Profile {
 export interface ProcessResponse {
   session_id: string
   transcript: string
+  detected_language: string | null
   speaker: {
     name: string | null
     similarity: number
@@ -31,11 +32,14 @@ export interface ProcessResponse {
     detected_mood: string
   }
   save_voice_prompt: boolean
+  effective_relationship: string
+  relationship_source: string
 }
 
 export interface ApproveResponse {
-  tts_audio_url: string
-  tts_payload: { speaker: string; description: string; text: string }
+  tts_audio_url: string | null
+  tts_payload: { model: string; text: string; description: string; f0_up_key: number }
+  expressive_text: string
 }
 
 export interface DenyResponse {

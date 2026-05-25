@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 
 export type RecorderState = 'idle' | 'recording' | 'ready'
 
@@ -61,6 +61,16 @@ export function useRecorder() {
     setSeconds(0)
     setState('idle')
   }, [stop])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+        recorderRef.current.stop()
+      }
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [])
 
   const toggle = useCallback(async () => {
     if (state === 'recording') stop()
