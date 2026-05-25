@@ -183,7 +183,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                     {[{ label: 'Yes', hint: 'press Y', fn: () => answer(true), color: 'hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700 dark:hover:bg-emerald-900/20 dark:hover:border-emerald-600 dark:hover:text-emerald-300' },
                       { label: 'No', hint: 'press N', fn: () => answer(false), color: 'hover:bg-red-50 hover:border-red-300 hover:text-red-700 dark:hover:bg-red-900/20 dark:hover:border-red-600 dark:hover:text-red-300' }].map(b => (
                       <button key={b.label} onClick={b.fn}
-                        className={`py-4 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 font-semibold text-base flex flex-col items-center gap-1 transition-all ${b.color}`}>
+                        className={`py-4 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 font-semibold text-base flex flex-col items-center gap-1 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-900 ${b.color}`}>
                         {b.label}
                         <span className="text-xs font-normal opacity-40 uppercase tracking-wider">{b.hint}</span>
                       </button>
