@@ -1,4 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion'
+import { useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import type { RecorderState } from '@/hooks/useRecorder'
 
@@ -17,6 +18,17 @@ const RELATIONSHIPS = ['friend','best_friend','parent','sibling','romantic','col
 export function Pipeline({ recorderState, formattedTime, onToggle, onReset, relationship, onRelationshipChange, showReset }: PipelineProps) {
   const isRecording = recorderState === 'recording'
   const isReady = recorderState === 'ready'
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && (e.target as HTMLElement).tagName !== 'INPUT' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
+        e.preventDefault()
+        onToggle()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onToggle])
 
   return (
     <div className="flex flex-col items-center gap-6">

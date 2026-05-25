@@ -1,27 +1,36 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
-interface ToastItem { id: number; message: string; type: 'ok' | 'err' }
+interface ToastItem { id: number; message: string; type: 'success' | 'error' | 'info' }
 
-let _push: ((msg: string, type: 'ok' | 'err') => void) | null = null
+let _push: ((msg: string, type: 'success' | 'error' | 'info') => void) | null = null
 
-export function toast(message: string, type: 'ok' | 'err' = 'ok') {
+export function toast(message: string, type: 'success' | 'error' | 'info' = 'info') {
   _push?.(message, type)
 }
 
 export function ToastProvider() {
   const [items, setItems] = useState<ToastItem[]>([])
   const counter = useRef(0)
+  const timers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
 
-  const push = useCallback((message: string, type: 'ok' | 'err') => {
+  const push = useCallback((message: string, type: 'success' | 'error' | 'info') => {
     const id = ++counter.current
     setItems(prev => [...prev, { id, message, type }])
-    setTimeout(() => setItems(prev => prev.filter(t => t.id !== id)), 3000)
+    const t = setTimeout(() => {
+      setItems(prev => prev.filter(item => item.id !== id))
+      timers.current.delete(id)
+    }, 3000)
+    timers.current.set(id, t)
   }, [])
 
   useEffect(() => {
     _push = push
-    return () => { _push = null }
+    return () => {
+      _push = null
+      timers.current.forEach(t => clearTimeout(t))
+      timers.current.clear()
+    }
   }, [push])
 
   return (
@@ -35,9 +44,11 @@ export function ToastProvider() {
             exit={{ opacity: 0, y: -4 }}
             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
             className={
-              item.type === 'ok'
+              item.type === 'success'
                 ? 'px-4 py-2.5 rounded-xl text-sm font-medium border bg-emerald-500/10 text-emerald-300 border-emerald-500/20 backdrop-blur-sm'
-                : 'px-4 py-2.5 rounded-xl text-sm font-medium border bg-red-500/10 text-red-300 border-red-500/20 backdrop-blur-sm'
+                : item.type === 'error'
+                ? 'px-4 py-2.5 rounded-xl text-sm font-medium border bg-red-500/10 text-red-300 border-red-500/20 backdrop-blur-sm'
+                : 'px-4 py-2.5 rounded-xl text-sm font-medium border bg-blue-500/10 text-blue-300 border-blue-500/20 backdrop-blur-sm'
             }
           >
             {item.message}
