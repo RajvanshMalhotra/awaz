@@ -1,0 +1,125 @@
+export interface ProfilePayload {
+  profile_id?: string
+  name: string
+  personality: Record<string, string>
+  custom_vibe?: string
+}
+
+export interface ProfilesResponse {
+  profiles: Profile[]
+  active_id: string | null
+}
+
+export interface Profile {
+  profile_id: string
+  name: string
+  personality: Record<string, string>
+  custom_vibe?: string
+}
+
+export interface ProcessResponse {
+  session_id: string
+  transcript: string
+  speaker: {
+    name: string | null
+    similarity: number
+    relationship: string | null
+  }
+  llm: {
+    expressive_text: string
+    reasoning: string
+    detected_mood: string
+  }
+  save_voice_prompt: boolean
+}
+
+export interface ApproveResponse {
+  tts_audio_url: string
+  tts_payload: { speaker: string; description: string; text: string }
+}
+
+export interface DenyResponse {
+  session_id: string
+  llm: {
+    expressive_text: string
+    reasoning: string
+    detected_mood: string
+  }
+}
+
+export const api = {
+  async getProfiles(): Promise<ProfilesResponse> {
+    const r = await fetch('/onboarding/profiles')
+    if (!r.ok) throw new Error('Failed to fetch profiles')
+    return r.json()
+  },
+
+  async saveProfile(payload: ProfilePayload): Promise<Profile> {
+    const r = await fetch('/onboarding', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!r.ok) throw new Error(await r.text())
+    return r.json()
+  },
+
+  async activateProfile(profileId: string): Promise<void> {
+    const r = await fetch(`/onboarding/profiles/${profileId}/activate`, { method: 'PUT' })
+    if (!r.ok) throw new Error('Failed to switch profile')
+  },
+
+  async processAudio(
+    blob: Blob,
+    relationship: string,
+    moodOverride: string,
+    extraText: string,
+  ): Promise<ProcessResponse> {
+    const fd = new FormData()
+    fd.append('audio', blob, 'recording.webm')
+    fd.append('relationship', relationship)
+    fd.append('mood_override', moodOverride)
+    if (extraText) fd.append('extra_text', extraText)
+    const r = await fetch('/pipeline/process', { method: 'POST', body: fd })
+    if (!r.ok) throw new Error(await r.text())
+    return r.json()
+  },
+
+  async approve(sessionId: string): Promise<ApproveResponse> {
+    const r = await fetch('/pipeline/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId }),
+    })
+    if (!r.ok) throw new Error(await r.text())
+    return r.json()
+  },
+
+  async deny(
+    sessionId: string,
+    overrides: { mood_override?: string; relationship_override?: string; extra_text?: string },
+  ): Promise<DenyResponse> {
+    const r = await fetch('/pipeline/deny', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, ...overrides }),
+    })
+    if (!r.ok) throw new Error(await r.text())
+    return r.json()
+  },
+
+  async saveSpeaker(sessionId: string, name: string, relationship: string): Promise<void> {
+    const fd = new FormData()
+    fd.append('session_id', sessionId)
+    fd.append('name', name)
+    fd.append('relationship', relationship)
+    const r = await fetch('/pipeline/save-speaker', { method: 'POST', body: fd })
+    if (!r.ok) throw new Error(await r.text())
+  },
+
+  async deleteAllSpeakers(): Promise<{ deleted: number }> {
+    const r = await fetch('/pipeline/speakers', { method: 'DELETE' })
+    if (!r.ok) throw new Error('Failed to delete speakers')
+    return r.json()
+  },
+}
