@@ -230,13 +230,9 @@
 #     )
 
 import asyncio
-<<<<<<< HEAD
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-=======
 import logging
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
->>>>>>> feature/update
 
 from core.models import (
     ProcessResponse, ApproveRequest, ApproveResponse,
@@ -247,12 +243,8 @@ from core.session_store import session_store
 from stt.service import get_stt_service
 from speaker.service import get_speaker_service
 from llm.service import get_llm_service
-<<<<<<< HEAD
-from tts.service import generate_tts_response, build_tts_payload
-=======
 from tts.service import generate_tts_response
 from sign.service import get_sign_service
->>>>>>> feature/update
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
@@ -458,29 +450,16 @@ async def approve(body: ApproveRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
-<<<<<<< HEAD
-    # Prefer explicit override in approve body, fall back to what /process stored
-    voice_gender = getattr(body, "voice_gender", None) or getattr(session, "voice_gender", None)
-
-    tts_result = await generate_tts_response(
-        expressive_text=session.llm_result.expressive_text,
-        session_id=body.session_id,
-        gender=voice_gender,        # e.g. "female" / "male" — resolved inside tts.service
-    )
-=======
     if session.tts_result:
-        # Fast path: speculative TTS was precomputed during review — instant response
         logger.info("Approve: using precomputed TTS for %s", body.session_id)
         tts_result = session.tts_result
     else:
-        # Slow path: TTS wasn't ready yet (user approved very quickly)
         logger.info("Approve: TTS not ready yet, computing now for %s", body.session_id)
         tts_result = await generate_tts_response(
             expressive_text=session.llm_result.expressive_text,
             detected_mood=session.llm_result.detected_mood,
             session_id=body.session_id,
         )
->>>>>>> feature/update
 
     session_store.delete(body.session_id)
 
@@ -520,10 +499,6 @@ async def deny(body: DenyRequest):
         extra_text=effective_extra,
     )
 
-<<<<<<< HEAD
-    # Carry voice_gender forward so the next /approve still uses the right voice
-=======
->>>>>>> feature/update
     new_session = session_store.create(
         transcript=session.transcript,
         detected_language=session.detected_language,
