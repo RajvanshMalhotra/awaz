@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import AnimatedGradientBackground from '@/components/ui/animated-gradient-background'
 import { api, type ProcessResponse, type ApproveResponse, type Speaker, type Profile } from '@/lib/api'
-import { useSignRecognizer } from '@/hooks/useSignRecognizer'
+import { useRecorder } from '@/hooks/useRecorder'
 import { useLatency } from '@/hooks/useLatency'
 import { toast } from '@/components/Toast'
 import { AudioPlayer } from '@/components/AudioPlayer'
@@ -39,21 +39,18 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
   const [speakers, setSpeakers] = useState<Speaker[]>([])
   const [inputText, setInputText] = useState('')
   const [pendingText, setPendingText] = useState<string | null>(null)
-  const [showCamera, setShowCamera] = useState(false)
-  const [showSignInput, setShowSignInput] = useState(false)
-  const [recognizedText, setRecognizedText] = useState('')
   const [processResult, setProcessResult] = useState<ProcessResponse | null>(null)
   const [approveResult, setApproveResult] = useState<ApproveResponse | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
+  const [showSaveSpeaker, setShowSaveSpeaker] = useState(false)
+  const [saveSpeakerName, setSaveSpeakerName] = useState('')
 
-  const recognizer = useSignRecognizer()
+  const recorder = useRecorder()
   const latency = useLatency()
   const isMounted = useRef(true)
   const processingRef = useRef(false)
   const profileMenuRef = useRef<HTMLDivElement>(null)
-  const signVideoRef = useRef<HTMLVideoElement>(null)
-  const signCanvasRef = useRef<HTMLCanvasElement>(null)
   const textInputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -76,7 +73,7 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
     return () => document.removeEventListener('mousedown', handler)
   }, [showProfileMenu])
 
-  // Keyboard shortcut: Escape clears/collapses
+  // Keyboard shortcut: Escape clears
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -87,6 +84,32 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [stage, showProfileMenu]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Audio processing: fires when recorder has a blob ──────────────────────
+  useEffect(() => {
+    if (recorder.state !== 'ready' || !recorder.blob || processingRef.current) return
+    processingRef.current = true
+    latency.start()
+    setStage('processing')
+    ;(async () => {
+      try {
+        const result = await api.processAudio(recorder.blob!, 'friend', mood, '')
+        if (!isMounted.current) return
+        latency.stop()
+        setProcessResult(result)
+        setSessionId(result.session_id)
+        setStage('review')
+        if (result.save_voice_prompt) setShowSaveSpeaker(true)
+      } catch (err) {
+        if (!isMounted.current) return
+        latency.stop()
+        toast(err instanceof Error ? err.message : 'Processing failed', 'error')
+        setStage('idle')
+      } finally {
+        processingRef.current = false
+      }
+    })()
+  }, [recorder.state]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Text processing pipeline ──────────────────────────────────────────────
   useEffect(() => {
@@ -131,33 +154,6 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
     }
   }, [inputText, handleSend])
 
-  // ── Camera / sign language ────────────────────────────────────────────────
-  useEffect(() => {
-    if (showCamera && signVideoRef.current && signCanvasRef.current && recognizer.state === 'ready') {
-      recognizer.start(signVideoRef.current, signCanvasRef.current)
-    }
-  }, [showCamera, recognizer.state]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleToggleCamera = useCallback(async () => {
-    if (recognizer.state === 'recording') {
-      const text = recognizer.stop()
-      setShowCamera(false)
-      setRecognizedText(text)
-      setShowSignInput(true)
-    } else {
-      setShowCamera(true)
-      setShowSignInput(false)
-      setRecognizedText('')
-    }
-  }, [recognizer])
-
-  const handleSendSign = useCallback(() => {
-    if (!recognizedText.trim()) return
-    setShowSignInput(false)
-    recognizer.reset()
-    handleSend(recognizedText)
-  }, [recognizedText, recognizer, handleSend])
-
   // ── Approve / Deny / Reset ────────────────────────────────────────────────
   const handleApprove = useCallback(async () => {
     if (!sessionId) return
@@ -197,19 +193,33 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
   }, [sessionId, mood, latency])
 
   const handleReset = useCallback(() => {
-    recognizer.reset()
+    recorder.reset()
     processingRef.current = false
     setStage('idle')
     setProcessResult(null)
     setApproveResult(null)
     setSessionId(null)
     setPendingText(null)
-    setShowCamera(false)
-    setShowSignInput(false)
-    setRecognizedText('')
+    setShowSaveSpeaker(false)
+    setSaveSpeakerName('')
     latency.reset()
     setTimeout(() => textInputRef.current?.focus(), 50)
-  }, [recognizer, latency])
+  }, [recorder, latency])
+
+  const handleSaveSpeaker = useCallback(async () => {
+    if (!sessionId || !saveSpeakerName.trim()) return
+    try {
+      await api.saveSpeaker(sessionId, saveSpeakerName.trim(), 'friend')
+      const { speakers: s } = await api.getSpeakers()
+      setSpeakers(s)
+      toast(`${saveSpeakerName.trim()} saved`, 'success')
+    } catch {
+      toast('Failed to save speaker', 'error')
+    } finally {
+      setShowSaveSpeaker(false)
+      setSaveSpeakerName('')
+    }
+  }, [sessionId, saveSpeakerName])
 
   const handleSwitchProfile = useCallback(async (profileId: string) => {
     try {
@@ -221,7 +231,7 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
   }, [profiles, onProfileUpdate])
 
   const isProcessing = stage === 'processing'
-  const isRecording = recognizer.state === 'recording'
+  const isRecording = recorder.state === 'recording'
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-[#050508] flex flex-col">
@@ -331,7 +341,29 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
               className="text-center space-y-2"
             >
               <p className="text-5xl font-black text-white/8 tracking-tight">Say something</p>
-              <p className="text-white/15 text-sm">Type below · or use the camera for sign language</p>
+              <p className="text-white/15 text-sm">Tap the mic to speak · or type below</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Recording indicator */}
+        <AnimatePresence>
+          {isRecording && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="flex flex-col items-center gap-3"
+            >
+              <div className="flex items-center gap-3">
+                <motion.div
+                  animate={{ scale: [1, 1.4, 1] }}
+                  transition={{ duration: 0.8, repeat: Infinity }}
+                  className="w-3 h-3 rounded-full bg-rose-500"
+                />
+                <span className="text-white/50 text-sm font-mono">{recorder.formattedTime}</span>
+              </div>
+              <p className="text-white/20 text-xs">Recording… tap mic to stop</p>
             </motion.div>
           )}
         </AnimatePresence>
@@ -357,17 +389,22 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
               transition={{ type: 'spring', stiffness: 380, damping: 32 }}
               className="w-full max-w-lg space-y-3"
             >
-              {/* Mood chip */}
+              {/* Mood chip + reasoning */}
               <div className="flex items-center gap-2">
                 <span className="text-[10px] bg-indigo-500/15 text-indigo-300 px-2.5 py-1 rounded-full font-mono font-semibold">
                   {processResult.llm.detected_mood}
                 </span>
+                {processResult.speaker.name && (
+                  <span className="text-[10px] bg-white/6 text-white/40 px-2.5 py-1 rounded-full">
+                    {processResult.speaker.name}
+                  </span>
+                )}
                 <span className="text-[10px] text-white/20 italic truncate">{processResult.llm.reasoning}</span>
               </div>
 
-              {/* Input text */}
+              {/* Transcript */}
               <div className="bg-white/4 border border-white/8 rounded-2xl p-4">
-                <p className="text-[10px] text-white/25 uppercase tracking-widest mb-2">Input</p>
+                <p className="text-[10px] text-white/25 uppercase tracking-widest mb-2">Heard</p>
                 <p className="text-white/65 text-sm leading-relaxed">{processResult.transcript}</p>
               </div>
 
@@ -378,6 +415,39 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
                   {processResult.llm.expressive_text}
                 </p>
               </div>
+
+              {/* Save speaker prompt */}
+              {showSaveSpeaker && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  className="bg-amber-900/15 border border-amber-500/20 rounded-2xl p-4 space-y-2"
+                >
+                  <p className="text-[10px] text-amber-300/60 uppercase tracking-widest">New voice detected — save this speaker?</p>
+                  <div className="flex gap-2">
+                    <input
+                      value={saveSpeakerName}
+                      onChange={e => setSaveSpeakerName(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleSaveSpeaker()}
+                      placeholder="Speaker name…"
+                      className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none placeholder:text-white/25 focus:border-white/20"
+                    />
+                    <button
+                      onClick={handleSaveSpeaker}
+                      disabled={!saveSpeakerName.trim()}
+                      className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs rounded-xl disabled:opacity-30 transition-colors"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setShowSaveSpeaker(false)}
+                      className="px-3 py-1.5 bg-white/5 text-white/30 text-xs rounded-xl hover:bg-white/10 transition-colors"
+                    >
+                      Skip
+                    </button>
+                  </div>
+                </motion.div>
+              )}
 
               {/* Audio */}
               {stage === 'approved' && approveResult?.tts_audio_url && (
@@ -442,86 +512,6 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
         </div>
       )}
 
-      {/* ── Camera preview (sign language) ── */}
-      <AnimatePresence>
-        {showCamera && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-            className="absolute z-20 left-1/2 -translate-x-1/2 rounded-2xl overflow-hidden border border-white/10 shadow-2xl"
-            style={{ bottom: '9rem', width: '220px', height: '165px' }}
-          >
-            <video ref={signVideoRef} autoPlay muted playsInline className="w-full h-full object-cover scale-x-[-1]" />
-            <canvas
-              ref={signCanvasRef}
-              width={220}
-              height={165}
-              className="absolute inset-0 w-full h-full scale-x-[-1] pointer-events-none"
-            />
-            {recognizer.state === 'initializing' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-2xl">
-                <span className="text-white/60 text-[10px]">Loading model…</span>
-              </div>
-            )}
-            <div className="absolute inset-0 border-2 border-rose-500/40 rounded-2xl pointer-events-none">
-              <div className="absolute top-2 left-2 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                <span className="text-white text-[10px] font-mono">REC</span>
-              </div>
-              {recognizer.liveGesture && (
-                <div className="absolute bottom-2 left-0 right-0 flex justify-center">
-                  <span className="bg-black/70 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
-                    {recognizer.liveGesture}
-                  </span>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── Sign language recognition result ── */}
-      <AnimatePresence>
-        {showSignInput && (
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
-            className="absolute z-20 left-1/2 -translate-x-1/2 w-full max-w-sm px-4"
-            style={{ bottom: '9rem' }}
-          >
-            <div className="bg-[#0d0f1a] border border-white/10 rounded-2xl p-4 space-y-3 shadow-2xl">
-              <p className="text-[10px] text-white/30 uppercase tracking-widest">Recognized sign (edit if needed)</p>
-              <textarea
-                value={recognizedText}
-                onChange={e => setRecognizedText(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendSign() } }}
-                placeholder="No gesture detected — type manually"
-                rows={2}
-                autoFocus
-                className="w-full bg-white/5 border border-white/8 rounded-xl px-3 py-2 text-white text-sm outline-none resize-none placeholder:text-white/20 focus:border-white/20"
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={handleSendSign}
-                  disabled={!recognizedText.trim()}
-                  className="flex-1 py-2 bg-white text-black text-xs font-bold rounded-xl disabled:opacity-30 hover:bg-white/90 transition-colors"
-                >
-                  Send →
-                </button>
-                <button
-                  onClick={() => { setShowSignInput(false); recognizer.reset() }}
-                  className="px-4 py-2 bg-white/6 text-white/40 text-xs rounded-xl hover:bg-white/10 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* ── Mood selector ── */}
       <div className="absolute z-10 left-0 right-16 px-5" style={{ bottom: '5.2rem' }}>
         <div className="flex flex-wrap gap-1.5">
@@ -545,24 +535,29 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
       <div className="absolute z-20 left-0 right-0 px-4 pb-4" style={{ bottom: 0 }}>
         <div className="flex items-end gap-2 bg-[#0c0e1a] border border-white/8 rounded-2xl p-2 shadow-2xl">
 
-          {/* Camera toggle */}
+          {/* Mic button */}
           <button
-            onClick={handleToggleCamera}
+            onClick={recorder.toggle}
             disabled={isProcessing}
             className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
               isRecording
-                ? 'bg-rose-500 text-white'
+                ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30'
                 : 'bg-white/6 text-white/40 hover:bg-white/10 hover:text-white/70'
             } disabled:opacity-30 disabled:cursor-not-allowed`}
-            title={isRecording ? 'Stop sign language recording' : 'Sign language (camera)'}
+            title={isRecording ? 'Stop recording' : 'Record voice'}
           >
             {isRecording ? (
-              <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 1, repeat: Infinity }}
-                className="w-3 h-3 rounded-sm bg-white" />
+              <motion.div
+                animate={{ scale: [1, 1.2, 1] }}
+                transition={{ duration: 0.8, repeat: Infinity }}
+                className="w-3 h-3 rounded-sm bg-white"
+              />
             ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M23 7l-7 5 7 5V7z" />
-                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <rect x="9" y="2" width="6" height="12" rx="3" />
+                <path d="M5 10a7 7 0 0 0 14 0" />
+                <line x1="12" y1="19" x2="12" y2="22" />
+                <line x1="8" y1="22" x2="16" y2="22" />
               </svg>
             )}
           </button>
