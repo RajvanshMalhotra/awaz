@@ -41,7 +41,6 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
   const [pendingText, setPendingText] = useState<string | null>(null)
   const [showCamera, setShowCamera] = useState(false)
   const [showSignInput, setShowSignInput] = useState(false)
-  const [recognizing, setRecognizing] = useState(false)
   const [recognizedText, setRecognizedText] = useState('')
   const [processResult, setProcessResult] = useState<ProcessResponse | null>(null)
   const [approveResult, setApproveResult] = useState<ApproveResponse | null>(null)
@@ -141,25 +140,10 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
 
   const handleToggleCamera = useCallback(async () => {
     if (recognizer.state === 'recording') {
-      const landmarks = recognizer.stop()
+      const text = recognizer.stop()
       setShowCamera(false)
-      if (landmarks.length === 0) return
-
-      setRecognizing(true)
+      setRecognizedText(text)
       setShowSignInput(true)
-      try {
-        const res = await fetch('/pipeline/sign-language', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ landmarks }),
-        })
-        const data = await res.json()
-        setRecognizedText(data.text ?? '')
-      } catch {
-        setRecognizedText('')
-      } finally {
-        setRecognizing(false)
-      }
     } else {
       setShowCamera(true)
       setShowSignInput(false)
@@ -485,6 +469,13 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
                 <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
                 <span className="text-white text-[10px] font-mono">REC</span>
               </div>
+              {recognizer.liveGesture && (
+                <div className="absolute bottom-2 left-0 right-0 flex justify-center">
+                  <span className="bg-black/70 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                    {recognizer.liveGesture}
+                  </span>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
@@ -501,44 +492,31 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
             style={{ bottom: '9rem' }}
           >
             <div className="bg-[#0d0f1a] border border-white/10 rounded-2xl p-4 space-y-3 shadow-2xl">
-              {recognizing ? (
-                <div className="flex items-center justify-center gap-2 text-white/50 text-sm py-2">
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ repeat: Infinity, duration: 0.9, ease: 'linear' }}
-                    className="w-4 h-4 border-2 border-white/25 border-t-white/70 rounded-full"
-                  />
-                  Recognizing…
-                </div>
-              ) : (
-                <>
-                  <p className="text-[10px] text-white/30 uppercase tracking-widest">Recognized sign (edit if needed)</p>
-                  <textarea
-                    value={recognizedText}
-                    onChange={e => setRecognizedText(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendSign() } }}
-                    placeholder="Recognized text will appear here…"
-                    rows={2}
-                    autoFocus
-                    className="w-full bg-white/5 border border-white/8 rounded-xl px-3 py-2 text-white text-sm outline-none resize-none placeholder:text-white/20 focus:border-white/20"
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleSendSign}
-                      disabled={!recognizedText.trim()}
-                      className="flex-1 py-2 bg-white text-black text-xs font-bold rounded-xl disabled:opacity-30 hover:bg-white/90 transition-colors"
-                    >
-                      Send →
-                    </button>
-                    <button
-                      onClick={() => { setShowSignInput(false); recognizer.reset() }}
-                      className="px-4 py-2 bg-white/6 text-white/40 text-xs rounded-xl hover:bg-white/10 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </>
-              )}
+              <p className="text-[10px] text-white/30 uppercase tracking-widest">Recognized sign (edit if needed)</p>
+              <textarea
+                value={recognizedText}
+                onChange={e => setRecognizedText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendSign() } }}
+                placeholder="No gesture detected — type manually"
+                rows={2}
+                autoFocus
+                className="w-full bg-white/5 border border-white/8 rounded-xl px-3 py-2 text-white text-sm outline-none resize-none placeholder:text-white/20 focus:border-white/20"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSendSign}
+                  disabled={!recognizedText.trim()}
+                  className="flex-1 py-2 bg-white text-black text-xs font-bold rounded-xl disabled:opacity-30 hover:bg-white/90 transition-colors"
+                >
+                  Send →
+                </button>
+                <button
+                  onClick={() => { setShowSignInput(false); recognizer.reset() }}
+                  className="px-4 py-2 bg-white/6 text-white/40 text-xs rounded-xl hover:bg-white/10 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </motion.div>
         )}

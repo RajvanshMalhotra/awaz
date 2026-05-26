@@ -1,7 +1,11 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
-import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision'
+import { GestureRecognizer, FilesetResolver } from '@mediapipe/tasks-vision'
 
 export type SignRecognizerState = 'idle' | 'initializing' | 'ready' | 'recording' | 'done'
+
+// Google's trained gesture model — confirmed URL from MediaPipe models CDN
+const MODEL_URL =
+  'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task'
 
 const HAND_CONNECTIONS: [number, number][] = [
   [0,1],[1,2],[2,3],[3,4],
@@ -12,14 +16,33 @@ const HAND_CONNECTIONS: [number, number][] = [
   [5,9],[9,13],[13,17],
 ]
 
-export type LandmarkFrame = [number, number, number][]
+// Map MediaPipe category names to display text
+const GESTURE_LABEL: Record<string, string> = {
+  Closed_Fist: 'fist',
+  Open_Palm: 'open hand',
+  Pointing_Up: 'pointing up',
+  Thumb_Down: 'thumbs down',
+  Thumb_Up: 'thumbs up',
+  Victory: 'peace',
+  ILoveYou: 'I love you',
+}
+
+function majorityVote(gestures: string[]): string {
+  if (gestures.length === 0) return ''
+  const counts: Record<string, number> = {}
+  for (const g of gestures) counts[g] = (counts[g] ?? 0) + 1
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
+  return GESTURE_LABEL[top] ?? top.toLowerCase().replace('_', ' ')
+}
 
 export function useSignRecognizer() {
   const [state, setState] = useState<SignRecognizerState>('idle')
-  const landmarkerRef = useRef<HandLandmarker | null>(null)
+  const [liveGesture, setLiveGesture] = useState<string>('')
+
+  const recognizerRef = useRef<GestureRecognizer | null>(null)
   const rafIdRef = useRef<number | null>(null)
   const lastSnapRef = useRef<number>(0)
-  const landmarkBufferRef = useRef<LandmarkFrame[]>([])
+  const gestureBufferRef = useRef<string[]>([])
   const isRecordingRef = useRef(false)
   const streamRef = useRef<MediaStream | null>(null)
 
@@ -49,27 +72,34 @@ export function useSignRecognizer() {
   }, [])
 
   const detect = useCallback((
-    landmarker: HandLandmarker,
+    recognizer: GestureRecognizer,
     video: HTMLVideoElement,
     canvas: HTMLCanvasElement
   ) => {
     const loop = () => {
       if (video.readyState >= 2) {
         const now = performance.now()
-        const results = landmarker.detectForVideo(video, now)
+        const results = recognizer.recognizeForVideo(video, now)
         const ctx = canvas.getContext('2d')
 
         if (results.landmarks.length === 0) {
           ctx?.clearRect(0, 0, canvas.width, canvas.height)
+          setLiveGesture('')
         } else {
           drawSkeleton(canvas, results.landmarks[0])
-          // Snap at ~15fps during recording
-          if (isRecordingRef.current && now - lastSnapRef.current > 66) {
-            lastSnapRef.current = now
-            const frame: LandmarkFrame = results.landmarks[0].map(
-              lm => [lm.x, lm.y, lm.z] as [number, number, number]
-            )
-            landmarkBufferRef.current.push(frame)
+
+          const topGesture = results.gestures[0]?.[0]
+          if (topGesture && topGesture.categoryName !== 'None' && topGesture.score > 0.5) {
+            const label = GESTURE_LABEL[topGesture.categoryName] ?? topGesture.categoryName
+            setLiveGesture(label)
+
+            // Collect gesture samples at ~5fps during recording
+            if (isRecordingRef.current && now - lastSnapRef.current > 200) {
+              lastSnapRef.current = now
+              gestureBufferRef.current.push(topGesture.categoryName)
+            }
+          } else {
+            setLiveGesture('')
           }
         }
       }
@@ -85,17 +115,13 @@ export function useSignRecognizer() {
       const vision = await FilesetResolver.forVisionTasks(
         'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.15/wasm'
       )
-      const landmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-          delegate: 'GPU',
-        },
+      const recognizer = await GestureRecognizer.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
         runningMode: 'VIDEO',
         numHands: 1,
       })
       if (!cancelled) {
-        landmarkerRef.current = landmarker
+        recognizerRef.current = recognizer
         setState('ready')
       }
     }
@@ -103,7 +129,7 @@ export function useSignRecognizer() {
     return () => {
       cancelled = true
       if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current)
-      landmarkerRef.current?.close()
+      recognizerRef.current?.close()
     }
   }, [])
 
@@ -111,8 +137,8 @@ export function useSignRecognizer() {
     videoEl: HTMLVideoElement,
     canvasEl: HTMLCanvasElement
   ) => {
-    if (!landmarkerRef.current) return
-    landmarkBufferRef.current = []
+    if (!recognizerRef.current) return
+    gestureBufferRef.current = []
     isRecordingRef.current = true
     lastSnapRef.current = 0
 
@@ -122,25 +148,28 @@ export function useSignRecognizer() {
     await videoEl.play()
 
     setState('recording')
-    detect(landmarkerRef.current, videoEl, canvasEl)
+    detect(recognizerRef.current, videoEl, canvasEl)
   }, [detect])
 
-  const stop = useCallback((): LandmarkFrame[] => {
+  // Returns the majority-voted gesture as display text
+  const stop = useCallback((): string => {
     isRecordingRef.current = false
     if (rafIdRef.current) {
       cancelAnimationFrame(rafIdRef.current)
       rafIdRef.current = null
     }
     streamRef.current?.getTracks().forEach(t => t.stop())
-    const captured = [...landmarkBufferRef.current]
+    const result = majorityVote(gestureBufferRef.current)
+    setLiveGesture('')
     setState('done')
-    return captured
+    return result
   }, [])
 
   const reset = useCallback(() => {
-    landmarkBufferRef.current = []
+    gestureBufferRef.current = []
+    setLiveGesture('')
     setState('ready')
   }, [])
 
-  return { state, start, stop, reset }
+  return { state, liveGesture, start, stop, reset }
 }
