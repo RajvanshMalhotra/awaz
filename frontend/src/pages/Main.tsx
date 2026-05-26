@@ -5,6 +5,7 @@ import { EmotionDock } from '@/components/ui/emotion-dock'
 import { api, type VoiceResponse, type Profile } from '@/lib/api'
 import { useRecorder } from '@/hooks/useRecorder'
 import { useLatency } from '@/hooks/useLatency'
+import { useVoiceWS } from '@/hooks/useVoiceWS'
 import { toast } from '@/components/Toast'
 import { AudioPlayer } from '@/components/AudioPlayer'
 
@@ -27,29 +28,18 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
 
   const recorder = useRecorder()
   const latency = useLatency()
+  const voiceWS = useVoiceWS()
   const profileMenuRef = useRef<HTMLDivElement>(null)
   const textInputRef = useRef<HTMLTextAreaElement>(null)
   const processingRef = useRef(false)
 
   // ── Submit audio blob ──────────────────────────────────────────────────────
-  const submitAudio = useCallback(async (blob: Blob) => {
+  const submitAudio = useCallback((blob: Blob) => {
     if (processingRef.current) return
     processingRef.current = true
-    setProcessing(true)
-    setResult(null)
     latency.start()
-    try {
-      const res = await api.voice(blob, mood)
-      latency.stop()
-      setResult(res)
-    } catch (err) {
-      latency.stop()
-      toast(err instanceof Error ? err.message : 'Processing failed', 'error')
-    } finally {
-      setProcessing(false)
-      processingRef.current = false
-    }
-  }, [mood, latency])
+    voiceWS.submit(blob, mood)
+  }, [mood, latency, voiceWS])
 
   // ── Submit text ────────────────────────────────────────────────────────────
   const submitText = useCallback(async (text: string) => {
@@ -90,6 +80,21 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
     submitAudio(recorder.blob)
   }
 
+  // Stop latency timer and clear processingRef when transcript arrives
+  const prevTranscriptRef = useRef<string | null>(null)
+  if (voiceWS.state.transcript && voiceWS.state.transcript !== prevTranscriptRef.current) {
+    prevTranscriptRef.current = voiceWS.state.transcript
+    latency.stop()
+    processingRef.current = false
+  }
+
+  // Show voiceWS errors via toast
+  const prevErrorRef = useRef<string | null>(null)
+  if (voiceWS.state.error && voiceWS.state.error !== prevErrorRef.current) {
+    prevErrorRef.current = voiceWS.state.error
+    toast(voiceWS.state.error, 'error')
+  }
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -98,11 +103,13 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
   }, [inputText, submitText])
 
   const handleReset = useCallback(() => {
+    voiceWS.reset()
     setResult(null)
     recorder.reset()
     latency.reset()
+    prevTranscriptRef.current = null
     setTimeout(() => textInputRef.current?.focus(), 50)
-  }, [recorder, latency])
+  }, [voiceWS, recorder, latency])
 
   const handleSwitchProfile = useCallback(async (profileId: string) => {
     try {
@@ -212,7 +219,7 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
         <AnimatePresence mode="wait">
 
           {/* Idle */}
-          {!processing && !result && (
+          {!voiceWS.state.isProcessing && !processing && !voiceWS.state.transcript && !result && (
             <motion.div
               key="idle"
               initial={{ opacity: 0, y: 16 }}
@@ -240,7 +247,7 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
           )}
 
           {/* Processing */}
-          {processing && (
+          {(voiceWS.state.isProcessing || processing) && (
             <motion.div
               key="processing"
               initial={{ opacity: 0 }}
@@ -253,17 +260,74 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
             </motion.div>
           )}
 
-          {/* Result */}
-          {!processing && result && (
+          {/* Voice WS result */}
+          {!voiceWS.state.isProcessing && voiceWS.state.transcript && (
             <motion.div
-              key="result"
+              key="ws-result"
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -16 }}
               transition={{ type: 'spring', stiffness: 360, damping: 30 }}
               className="w-full max-w-lg space-y-3"
             >
-              {/* Mood chip */}
+              {voiceWS.state.detectedMood && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] bg-indigo-500/15 text-indigo-300 px-2.5 py-1 rounded-full font-mono font-semibold">
+                    {voiceWS.state.detectedMood}
+                  </span>
+                  <span className="text-[10px] text-white/20 italic truncate">{voiceWS.state.reasoning}</span>
+                </div>
+              )}
+
+              <div className="bg-emerald-900/20 border border-emerald-500/20 rounded-2xl p-4">
+                <p className="text-[10px] text-emerald-300/50 uppercase tracking-widest mb-2">Voice</p>
+                {voiceWS.state.isPlayingAudio ? (
+                  <div className="flex items-center gap-2 text-emerald-300 text-sm">
+                    <motion.div
+                      animate={{ scale: [1, 1.3, 1] }}
+                      transition={{ duration: 0.6, repeat: Infinity }}
+                      className="w-2 h-2 rounded-full bg-emerald-400"
+                    />
+                    Playing…
+                  </div>
+                ) : (
+                  <p className="text-emerald-300/60 text-sm">Playback complete</p>
+                )}
+              </div>
+
+              <div className="bg-white/4 border border-white/8 rounded-2xl p-4">
+                <p className="text-[10px] text-white/25 uppercase tracking-widest mb-2">You said</p>
+                <p className="text-white/60 text-sm leading-relaxed">{voiceWS.state.transcript}</p>
+              </div>
+
+              {voiceWS.state.expressiveText && (
+                <div className="bg-indigo-900/15 border border-indigo-500/20 rounded-2xl p-4">
+                  <p className="text-[10px] text-indigo-300/40 uppercase tracking-widest mb-2">Spoken as</p>
+                  <p className="text-white/70 text-sm leading-relaxed font-mono break-words">
+                    {voiceWS.state.expressiveText}
+                  </p>
+                </div>
+              )}
+
+              <button
+                onClick={handleReset}
+                className="w-full bg-white/6 hover:bg-white/10 active:scale-95 text-white/40 font-semibold py-3 rounded-2xl transition-all text-sm"
+              >
+                ← Say something else
+              </button>
+            </motion.div>
+          )}
+
+          {/* Text result */}
+          {!processing && result && (
+            <motion.div
+              key="text-result"
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -16 }}
+              transition={{ type: 'spring', stiffness: 360, damping: 30 }}
+              className="w-full max-w-lg space-y-3"
+            >
               <div className="flex items-center gap-2">
                 <span className="text-[10px] bg-indigo-500/15 text-indigo-300 px-2.5 py-1 rounded-full font-mono font-semibold">
                   {result.detected_mood}
@@ -271,19 +335,16 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
                 <span className="text-[10px] text-white/20 italic truncate">{result.reasoning}</span>
               </div>
 
-              {/* Audio — auto-plays */}
               <div className="bg-emerald-900/20 border border-emerald-500/20 rounded-2xl p-4">
                 <p className="text-[10px] text-emerald-300/50 uppercase tracking-widest mb-2">Voice</p>
                 <AudioPlayer url={result.tts_audio_url} />
               </div>
 
-              {/* What was heard */}
               <div className="bg-white/4 border border-white/8 rounded-2xl p-4">
                 <p className="text-[10px] text-white/25 uppercase tracking-widest mb-2">You said</p>
                 <p className="text-white/60 text-sm leading-relaxed">{result.transcript}</p>
               </div>
 
-              {/* Expressive text */}
               <div className="bg-indigo-900/15 border border-indigo-500/20 rounded-2xl p-4">
                 <p className="text-[10px] text-indigo-300/40 uppercase tracking-widest mb-2">Spoken as</p>
                 <p className="text-white/70 text-sm leading-relaxed font-mono break-words">
@@ -316,7 +377,7 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
             {/* Mic button */}
             <button
               onClick={handleToggleMic}
-              disabled={processing}
+              disabled={voiceWS.state.isProcessing || processing}
               className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
                 isRecording
                   ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30'
@@ -347,7 +408,7 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
               onKeyDown={handleKeyDown}
               placeholder="Type what you want to say… (Enter to send)"
               rows={1}
-              disabled={processing || isRecording}
+              disabled={voiceWS.state.isProcessing || processing || isRecording}
               className="flex-1 bg-transparent text-white text-sm outline-none resize-none placeholder:text-white/25 py-2 px-1 min-h-[2.5rem] max-h-32 disabled:opacity-40"
               style={{ lineHeight: '1.5' }}
             />
@@ -355,7 +416,7 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
             {/* Send button */}
             <button
               onClick={() => submitText(inputText)}
-              disabled={!inputText.trim() || processing || isRecording}
+              disabled={!inputText.trim() || voiceWS.state.isProcessing || processing || isRecording}
               className="flex-shrink-0 w-10 h-10 rounded-xl bg-white/90 flex items-center justify-center transition-all hover:bg-white active:scale-95 disabled:opacity-20 disabled:cursor-not-allowed"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#050508" strokeWidth="2.5">
