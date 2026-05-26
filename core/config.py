@@ -4,17 +4,11 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     groq_api_key: str
-<<<<<<< HEAD
-    gemini_api_key: str
-    silk_api_key: str 
-    silk_default_speaker: str = "speaker_1"
-    silk_default_f0_up_key: int = 0
-=======
-    silk_api_key: str 
+    sarvam_api_key: str = ""
+    silk_api_key: str
     silk_default_speaker: str = "speaker_1"
     silk_default_f0_up_key: int = 0
     user_profile_path: str = "user_profile.json"
->>>>>>> feature/update
 
     # Voice store path — where speaker voice prints are persisted
     voice_store_path: str = "voice_store/speakers.json"
