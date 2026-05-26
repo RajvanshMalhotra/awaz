@@ -145,6 +145,13 @@ async def synthesize_stream(
         raise RuntimeError("SILK_API_KEY is not set in .env")
 
     payload = build_tts_payload(expressive_text, detected_mood)
+
+    logger.info(
+        "TTS stream → mood=%s desc=%r",
+        detected_mood,
+        payload["description"][:80],
+    )
+
     client = _get_http_client()
 
     async with client.stream(
@@ -160,7 +167,7 @@ async def synthesize_stream(
         first = True
         async for chunk in response.aiter_bytes(chunk_size=4096):
             if first:
-                chunk = chunk[44:]  # strip standard 44-byte WAV header
+                chunk = chunk[44:] if len(chunk) >= 44 else b""
                 first = False
             if chunk:
                 yield chunk
