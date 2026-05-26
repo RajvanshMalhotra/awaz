@@ -1,25 +1,14 @@
 import { useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { GlassEffect, GlassFilter } from '@/components/ui/liquid-glass'
+import { EmotionDock } from '@/components/ui/emotion-dock'
 import { api, type VoiceResponse, type Profile } from '@/lib/api'
 import { useRecorder } from '@/hooks/useRecorder'
 import { useLatency } from '@/hooks/useLatency'
 import { toast } from '@/components/Toast'
 import { AudioPlayer } from '@/components/AudioPlayer'
 
-const MOODS = ['auto', 'happy', 'excited', 'calm', 'sarcastic', 'angry', 'neutral', 'whispering'] as const
-type Mood = typeof MOODS[number]
-
-const MOOD_STYLE: Record<string, string> = {
-  auto:       'border-white/30 text-white/70',
-  happy:      'border-yellow-400/50 text-yellow-300',
-  excited:    'border-orange-400/50 text-orange-300',
-  calm:       'border-blue-400/50 text-blue-300',
-  sarcastic:  'border-purple-400/50 text-purple-300',
-  angry:      'border-red-400/50 text-red-300',
-  neutral:    'border-zinc-400/50 text-zinc-300',
-  whispering: 'border-indigo-400/50 text-indigo-300',
-}
+type Mood = string
 
 interface MainProps {
   profiles: Profile[]
@@ -314,23 +303,9 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
         </AnimatePresence>
       </div>
 
-      {/* ── Mood selector ── */}
-      <div className="absolute z-10 left-0 right-0 px-5" style={{ bottom: '5.2rem' }}>
-        <div className="flex flex-wrap gap-1.5">
-          {MOODS.map(m => (
-            <button
-              key={m}
-              onClick={() => setMood(m)}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                mood === m
-                  ? MOOD_STYLE[m] + ' bg-white/5 scale-105'
-                  : 'border-white/8 text-white/20 hover:text-white/40 hover:border-white/15'
-              }`}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
+      {/* ── Emotion dock ── */}
+      <div className="absolute z-20 left-0 right-0 flex justify-center" style={{ bottom: '5.2rem' }}>
+        <EmotionDock selected={mood} onSelect={setMood} />
       </div>
 
       {/* ── Input bar ── */}
