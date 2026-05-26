@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 export interface VoiceWSState {
   transcript: string | null
@@ -24,6 +24,7 @@ export function useVoiceWS() {
   const [state, setState] = useState<VoiceWSState>(INITIAL_STATE)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const nextStartTimeRef = useRef(0)
+  const audioEndedRef = useRef(false)
   const wsRef = useRef<WebSocket | null>(null)
 
   const submit = useCallback((blob: Blob, mood: string) => {
@@ -35,6 +36,8 @@ export function useVoiceWS() {
     }
 
     setState({ ...INITIAL_STATE, isProcessing: true })
+    nextStartTimeRef.current = 0
+    audioEndedRef.current = false
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const moodParam = encodeURIComponent(mood)
@@ -50,7 +53,12 @@ export function useVoiceWS() {
 
     ws.onmessage = (event) => {
       if (typeof event.data === 'string') {
-        const msg: { type: string; [key: string]: string } = JSON.parse(event.data)
+        let msg: { type: string; [key: string]: string }
+        try {
+          msg = JSON.parse(event.data)
+        } catch {
+          return
+        }
 
         if (msg.type === 'transcript') {
           setState(s => ({ ...s, transcript: msg.text }))
@@ -65,12 +73,15 @@ export function useVoiceWS() {
 
         } else if (msg.type === 'audio_start') {
           const ctx = new AudioContext({ sampleRate: 24000 })
+          ctx.resume()
           audioCtxRef.current = ctx
           nextStartTimeRef.current = ctx.currentTime + 0.1
+          audioEndedRef.current = false
           setState(s => ({ ...s, isPlayingAudio: true }))
 
         } else if (msg.type === 'audio_end') {
-          setState(s => ({ ...s, isProcessing: false, isPlayingAudio: false }))
+          audioEndedRef.current = true
+          setState(s => ({ ...s, isProcessing: false }))
           ws.close(1000)
 
         } else if (msg.type === 'error') {
@@ -101,6 +112,11 @@ export function useVoiceWS() {
         const startTime = Math.max(nextStartTimeRef.current, ctx.currentTime)
         source.start(startTime)
         nextStartTimeRef.current = startTime + buffer.duration
+        source.onended = () => {
+          if (audioEndedRef.current) {
+            setState(s => ({ ...s, isPlayingAudio: false }))
+          }
+        }
       }
     }
 
@@ -109,6 +125,7 @@ export function useVoiceWS() {
     }
 
     ws.onclose = (event) => {
+      wsRef.current = null
       // Abnormal close codes (not 1000 = normal, not 1001 = going away)
       if (event.code !== 1000 && event.code !== 1001) {
         setState(s => ({ ...s, isProcessing: false, isPlayingAudio: false }))
@@ -124,6 +141,13 @@ export function useVoiceWS() {
       audioCtxRef.current = null
     }
     setState(INITIAL_STATE)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      wsRef.current?.close()
+      audioCtxRef.current?.close()
+    }
   }, [])
 
   return { state, submit, reset }
