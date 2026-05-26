@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 import httpx
 
@@ -34,7 +34,7 @@ def _get_http_client() -> httpx.AsyncClient:
     return _http_client
 
 
-SILK_SPEAKER = "speaker_1"
+
 
 # Maps detected_mood → Mulberry description emotion word (from vd.md vocabulary)
 # Mulberry understands: neutral, energetic, excited, sad, sarcastic, dry, crying, angry
@@ -88,7 +88,6 @@ def build_tts_payload(expressive_text: str, detected_mood: str = "neutral", f0_u
         "model":       "mulberry",
         "text":        expressive_text,
         "description": _build_description(detected_mood),
-        "speaker":     SILK_SPEAKER,
         "f0_up_key":   f0_up_key,
     }
 
@@ -134,6 +133,37 @@ async def synthesize(
         logger.debug("TTS saved → %s", save_path)
 
     return wav_bytes
+
+
+async def synthesize_stream(
+    expressive_text: str,
+    detected_mood: str = "neutral",
+) -> AsyncGenerator[bytes, None]:
+    """Stream raw PCM chunks from Silk mulberry (WAV header stripped)."""
+    api_key = getattr(settings, "silk_api_key", None)
+    if not api_key:
+        raise RuntimeError("SILK_API_KEY is not set in .env")
+
+    payload = build_tts_payload(expressive_text, detected_mood)
+    client = _get_http_client()
+
+    async with client.stream(
+        "POST",
+        SILK_TTS_URL,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+    ) as response:
+        response.raise_for_status()
+        first = True
+        async for chunk in response.aiter_bytes(chunk_size=4096):
+            if first:
+                chunk = chunk[44:]  # strip standard 44-byte WAV header
+                first = False
+            if chunk:
+                yield chunk
 
 
 # ─── /approve route helper ────────────────────────────────────────────────────
