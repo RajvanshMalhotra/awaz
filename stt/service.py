@@ -27,7 +27,7 @@ class STTService:
     def __init__(self):
         settings = get_settings()
         self._client = AsyncGroq(api_key=settings.groq_api_key)
-        self._model = "whisper-large-v3"
+        self._model = "whisper-large-v3-turbo"
 
     # ------------------------------------------------------------------
     # Public API

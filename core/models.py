@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 from enum import Enum
 
 
@@ -8,17 +8,18 @@ from enum import Enum
 # ---------------------------------------------------------------------------
 
 class Mood(str, Enum):
-    auto = "auto"          # LLM detects mood from audio/transcript
+    auto = "auto"              # infer from text
     happy = "happy"
     sad = "sad"
-    shocked = "shocked"
+    excited = "excited"
+    calm = "calm"
+    confident = "confident"
+    empathetic = "empathetic"
+    professional = "professional"
     sarcastic = "sarcastic"
     angry = "angry"
-    scared = "scared"
-    laughing = "laughing"
-    whispering = "whispering"
     neutral = "neutral"
-    excited = "excited"
+    whispering = "whispering"
 
 
 class Relationship(str, Enum):
@@ -83,9 +84,10 @@ class ProcessRequest(BaseModel):
 
 
 class LLMResult(BaseModel):
-    expressive_text: str            # (laughing)Haha... format
-    detected_mood: str              # raw string — LLM may return values outside Mood enum
-    reasoning: str                  # short internal note, useful for deny-regen
+    expressive_text: str            # original text with (emotion) tags added
+    detected_mood: str              # primary emotion applied
+    emotion_source: str = "auto"   # "auto" | "selected" | "combined"
+    reasoning: str                  # e.g. "Auto-inferred: calm" or "Using selected mood: confident"
 
 
 class ProcessResponse(BaseModel):
@@ -147,3 +149,48 @@ class SaveSpeakerResponse(BaseModel):
     name: str
     relationship: Relationship
     message: str
+
+
+# ---------------------------------------------------------------------------
+# Onboarding
+# ---------------------------------------------------------------------------
+
+Energy = Literal["chill", "chaotic"]
+Filter = Literal["clean", "unfiltered"]
+Style = Literal["punchy", "dramatic"]
+Tone = Literal["sincere", "sarcastic"]
+LangLean = Literal["hindi", "english"]
+
+
+class PersonalityRequest(BaseModel):
+    energy: Energy
+    filter: Filter
+    style: Style
+    tone: Tone
+    lang_lean: LangLean
+
+
+class OnboardingRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    personality: PersonalityRequest
+    custom_vibe: str = Field(default="", max_length=400)
+    profile_id: Optional[str] = None  # if given, update existing profile
+
+
+class OnboardingResponse(BaseModel):
+    profile_id: str
+    name: str
+    personality: dict
+    custom_vibe: str
+    llm_system_prompt: str
+    mulberry_description: str
+
+
+class OnboardingStatusResponse(BaseModel):
+    completed: bool
+    profile: Optional[OnboardingResponse] = None
+
+
+class ProfileListResponse(BaseModel):
+    active_id: Optional[str]
+    profiles: list[OnboardingResponse]

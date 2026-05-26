@@ -15,8 +15,12 @@ class PipelineSession:
     original_request: ProcessRequest
     llm_result: LLMResult
     audio_bytes: bytes
+<<<<<<< HEAD
     voice_gender: Optional[str] = None          # set from onboarding / /process form field
+=======
+>>>>>>> feature/update
     created_at: datetime = field(default_factory=datetime.utcnow)
+    tts_result: Optional[dict] = field(default=None)   # pre-computed TTS (speculative)
 
     def is_expired(self) -> bool:
         return datetime.utcnow() > self.created_at + timedelta(minutes=10)

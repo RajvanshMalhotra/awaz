@@ -9,7 +9,10 @@ import sys
 from core.user_profile import (
     user_profile_store,
     Personality,
+<<<<<<< HEAD
     VALID_VOICE_GENDERS,
+=======
+>>>>>>> feature/update
 )
 
 # ─── Question bank ────────────────────────────────────────────────────────────
@@ -81,6 +84,7 @@ QUESTIONS = [
     },
 ]
 
+<<<<<<< HEAD
 VOICE_OPTIONS = [
     ("female",     "Female — voice 1  (default female)"),
     ("female_alt", "Female — voice 2  (alternate female timbre)"),
@@ -88,6 +92,8 @@ VOICE_OPTIONS = [
     ("male_deep",  "Male   — voice 2  (deeper male)"),
 ]
 
+=======
+>>>>>>> feature/update
 # Human-readable labels for personality summary
 PERSONALITY_LABELS = {
     "energy":    {"chaotic": "High energy / extroverted",  "chill": "Calm / introverted"},
@@ -146,7 +152,10 @@ def run_onboarding():
         divider("Existing Profile Found")
         p = user_profile_store.get()
         print(f"  Name    : {p.name}")
+<<<<<<< HEAD
         print(f"  Voice   : {p.voice_gender}")
+=======
+>>>>>>> feature/update
         for dim, val in p.personality.to_dict().items():
             print(f"  {dim:10}: {PERSONALITY_LABELS[dim][val]}")
         redo = input("\n  Redo onboarding? (y/n): ").strip().lower()
@@ -193,6 +202,7 @@ def run_onboarding():
         label = PERSONALITY_LABELS[dim][val]
         print(f"  {dim:10} → {label}")
 
+<<<<<<< HEAD
     # ── Voice selection ──
     divider("Voice")
     print("  Pick the TTS voice for your Awaaz:\n")
@@ -206,11 +216,16 @@ def run_onboarding():
         print("  Invalid — try again.")
     print(f"  ✓ Voice: {voice_gender}")
 
+=======
+>>>>>>> feature/update
     # ── Save ──
     divider("Saving")
     profile = user_profile_store.save(
         name=name,
+<<<<<<< HEAD
         voice_gender=voice_gender,
+=======
+>>>>>>> feature/update
         personality=personality,
     )
     print("  ✓ Saved to user_profile.json")
