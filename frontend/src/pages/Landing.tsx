@@ -14,16 +14,14 @@ const features = [
 
 export function Landing({ onEnter }: LandingProps) {
   return (
-    <div className="relative bg-[#050508] min-h-screen overflow-y-auto">
+    <div className="relative bg-[#0A0A0A] min-h-screen overflow-y-auto">
 
       {/* ── Hero ─────────────────────────────────────────────────── */}
       <div className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden">
         <AnimatedGradientBackground
-          gradientColors={['#050508', '#0d1240', '#1a0533', '#080e38', '#1a1040', '#0a0820', '#050508']}
-          gradientStops={[30, 48, 58, 68, 78, 90, 100]}
           Breathing={true}
-          breathingRange={10}
-          animationSpeed={0.012}
+          breathingRange={5}
+          animationSpeed={0.02}
         />
 
         <div className="relative z-10 text-center px-6 max-w-4xl mx-auto space-y-8">
@@ -112,7 +110,7 @@ export function Landing({ onEnter }: LandingProps) {
       </div>
 
       {/* ── Scroll Demo ──────────────────────────────────────────── */}
-      <div className="bg-[#050508]">
+      <div className="bg-[#0A0A0A]">
         <ContainerScroll
           titleComponent={
             <div className="text-center space-y-3">
@@ -212,7 +210,7 @@ export function Landing({ onEnter }: LandingProps) {
       </div>
 
       {/* ── Footer ───────────────────────────────────────────────── */}
-      <div className="relative bg-[#050508] py-12 text-center border-t border-white/5">
+      <div className="relative bg-[#0A0A0A] py-12 text-center border-t border-white/5">
         <p className="text-white/20 text-xs">Awaaz · Emotion-aware voice delivery for Hinglish</p>
         <button
           onClick={onEnter}

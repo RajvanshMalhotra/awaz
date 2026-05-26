@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import AnimatedGradientBackground from '@/components/ui/animated-gradient-background'
+import { GlassEffect, GlassFilter } from '@/components/ui/liquid-glass'
 import { api, type ProcessResponse, type ApproveResponse, type Speaker, type Profile } from '@/lib/api'
 import { useRecorder } from '@/hooks/useRecorder'
 import { useLatency } from '@/hooks/useLatency'
@@ -234,15 +234,16 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
   const isRecording = recorder.state === 'recording'
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-[#050508] flex flex-col">
-      <AnimatedGradientBackground
-        gradientColors={['#050508', '#090d1f', '#0d0f2a', '#080814', '#0a0820', '#050508', '#050508']}
-        gradientStops={[20, 40, 55, 68, 82, 93, 100]}
-        Breathing={true}
-        breathingRange={6}
-        animationSpeed={0.008}
-        containerClassName="pointer-events-none"
-      />
+    <div
+      className="relative w-full h-screen overflow-hidden flex flex-col bg-cover bg-center"
+      style={{
+        backgroundImage: `url('https://pub-940ccf6255b54fa799a9b01050e6c227.r2.dev/ruixen_moon_2.png')`,
+        backgroundAttachment: 'fixed',
+      }}
+    >
+      <GlassFilter />
+      {/* Dark overlay so text stays readable */}
+      <div className="absolute inset-0 bg-black/45 pointer-events-none z-0" />
 
       {/* ── Header ── z-30 so dropdown renders above content area */}
       <div className="relative z-30 flex items-center justify-between px-6 py-4 border-b border-white/5">
@@ -533,7 +534,8 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
 
       {/* ── Input bar ── */}
       <div className="absolute z-20 left-0 right-0 px-4 pb-4" style={{ bottom: 0 }}>
-        <div className="flex items-end gap-2 bg-[#0c0e1a] border border-white/8 rounded-2xl p-2 shadow-2xl">
+        <GlassEffect className="rounded-2xl">
+        <div className="flex items-end gap-2 p-2">
 
           {/* Mic button */}
           <button
@@ -586,6 +588,7 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
             </svg>
           </button>
         </div>
+        </GlassEffect>
       </div>
     </div>
   )
