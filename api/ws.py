@@ -3,7 +3,7 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from core.models import Relationship
+from core.models import Mood, Relationship
 from llm.service import get_llm_service
 from stt.service import get_stt_service
 from tts.service import synthesize_stream
@@ -27,6 +27,12 @@ async def voice_ws(websocket: WebSocket, mood_override: str = "auto"):
       {type: "error", message}                 — on any failure
     """
     await websocket.accept()
+
+    # Validate mood_override against known values; fall back to "auto"
+    valid_moods = {m.value for m in Mood}
+    if mood_override not in valid_moods:
+        mood_override = "auto"
+
     try:
         audio_bytes = await websocket.receive_bytes()
 
@@ -55,8 +61,13 @@ async def voice_ws(websocket: WebSocket, mood_override: str = "auto"):
 
         # TTS — stream PCM chunks
         await websocket.send_text(json.dumps({"type": "audio_start"}))
-        async for chunk in synthesize_stream(llm_result.expressive_text, llm_result.detected_mood):
-            await websocket.send_bytes(chunk)
+        try:
+            async for chunk in synthesize_stream(llm_result.expressive_text, llm_result.detected_mood):
+                await websocket.send_bytes(chunk)
+        except Exception as tts_exc:
+            logger.exception("WS TTS stream error: %s", tts_exc)
+            await websocket.close(code=1011)
+            return
         await websocket.send_text(json.dumps({"type": "audio_end"}))
 
     except WebSocketDisconnect:
@@ -65,5 +76,5 @@ async def voice_ws(websocket: WebSocket, mood_override: str = "auto"):
         logger.exception("WS /ws/voice error: %s", exc)
         try:
             await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
-        except Exception:
-            pass
+        except Exception as send_exc:
+            logger.debug("Failed to send WS error frame: %s", send_exc)
