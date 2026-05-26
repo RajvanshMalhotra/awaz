@@ -231,6 +231,7 @@
 
 import asyncio
 import logging
+import uuid as _uuid
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 
@@ -248,6 +249,55 @@ from sign.service import get_sign_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
+
+
+# ---------------------------------------------------------------------------
+# POST /pipeline/voice  — single-shot: audio in, TTS audio out (~5s total)
+# STT + speaker ID run concurrently, then LLM, then TTS — no session/approve step.
+# ---------------------------------------------------------------------------
+
+@router.post("/voice")
+async def voice_pipeline(
+    audio: UploadFile = File(...),
+    relationship: Relationship = Form(Relationship.friend),
+    mood_override: Mood = Form(Mood.auto),
+):
+    audio_bytes = await audio.read()
+    filename = audio.filename or "audio.webm"
+
+    stt = get_stt_service()
+    speaker_svc = get_speaker_service()
+    llm_svc = get_llm_service()
+
+    # STT and speaker ID concurrently
+    transcript_result, speaker_result = await asyncio.gather(
+        stt.transcribe(audio_bytes, filename),
+        speaker_svc.identify(audio_bytes),
+    )
+
+    llm_result = await llm_svc.generate(
+        transcript=transcript_result.transcript,
+        relationship=relationship,
+        speaker_name=speaker_result.name,
+        mood_override=mood_override.value,
+    )
+
+    tts_result = await generate_tts_response(
+        expressive_text=llm_result.expressive_text,
+        detected_mood=llm_result.detected_mood,
+        session_id=str(_uuid.uuid4()),
+    )
+
+    return {
+        "transcript": transcript_result.transcript,
+        "detected_language": transcript_result.detected_language,
+        "expressive_text": llm_result.expressive_text,
+        "detected_mood": llm_result.detected_mood,
+        "reasoning": llm_result.reasoning,
+        "tts_audio_url": tts_result["tts_audio_url"],
+        "speaker_name": speaker_result.name,
+        "save_voice_prompt": speaker_result.is_new_speaker,
+    }
 
 
 async def _precompute_tts(session_id: str) -> None:

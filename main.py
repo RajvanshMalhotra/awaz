@@ -81,6 +81,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from api.onboarding import router as onboarding_router
 from api.pipeline import router as pipeline_router
@@ -149,17 +150,6 @@ async def health():
 
 @app.get("/")
 async def root():
-    return {
-        "service": "Awaaz API",
-        "docs": "/docs",
-        "ui": "/ui",
-        "endpoints": {
-            "process": "POST /pipeline/process",
-            "approve": "POST /pipeline/approve",
-            "deny": "POST /pipeline/deny",
-            "save_speaker": "POST /pipeline/save-speaker",
-            "onboarding_status": "GET /onboarding/status",
-            "save_onboarding": "POST /onboarding",
-            "clear_onboarding": "DELETE /onboarding",
-        },
-    }
+    if os.path.exists("frontend.html"):
+        return FileResponse("frontend.html")
+    return {"service": "Awaaz API", "docs": "/docs"}
