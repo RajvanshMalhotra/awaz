@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { GlassEffect, GlassFilter } from '@/components/ui/liquid-glass'
 import { EmotionDock } from '@/components/ui/emotion-dock'
@@ -73,27 +73,36 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
     }
   }, [recorder])
 
-  // When recorder produces a blob, submit it
+  // Refs for tracking state changes
   const prevBlobRef = useRef<Blob | null>(null)
-  if (recorder.blob && recorder.blob !== prevBlobRef.current) {
-    prevBlobRef.current = recorder.blob
-    submitAudio(recorder.blob)
-  }
+  const prevTranscriptRef = useRef<string | null>(null)
+  const prevErrorRef = useRef<string | null>(null)
+
+  // When recorder produces a blob, submit it
+  useEffect(() => {
+    if (recorder.blob && recorder.blob !== prevBlobRef.current) {
+      prevBlobRef.current = recorder.blob
+      submitAudio(recorder.blob)
+    }
+  }, [recorder.blob, submitAudio])
 
   // Stop latency timer and clear processingRef when transcript arrives
-  const prevTranscriptRef = useRef<string | null>(null)
-  if (voiceWS.state.transcript && voiceWS.state.transcript !== prevTranscriptRef.current) {
-    prevTranscriptRef.current = voiceWS.state.transcript
-    latency.stop()
-    processingRef.current = false
-  }
+  useEffect(() => {
+    if (voiceWS.state.transcript && voiceWS.state.transcript !== prevTranscriptRef.current) {
+      prevTranscriptRef.current = voiceWS.state.transcript
+      latency.stop()
+      processingRef.current = false
+    }
+  }, [voiceWS.state.transcript, latency])
 
   // Show voiceWS errors via toast
-  const prevErrorRef = useRef<string | null>(null)
-  if (voiceWS.state.error && voiceWS.state.error !== prevErrorRef.current) {
-    prevErrorRef.current = voiceWS.state.error
-    toast(voiceWS.state.error, 'error')
-  }
+  useEffect(() => {
+    if (voiceWS.state.error && voiceWS.state.error !== prevErrorRef.current) {
+      prevErrorRef.current = voiceWS.state.error
+      processingRef.current = false
+      toast(voiceWS.state.error, 'error')
+    }
+  }, [voiceWS.state.error])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -103,6 +112,7 @@ export function Main({ profiles, activeProfile, onProfileUpdate, onAddProfile, o
   }, [inputText, submitText])
 
   const handleReset = useCallback(() => {
+    processingRef.current = false
     voiceWS.reset()
     setResult(null)
     recorder.reset()
