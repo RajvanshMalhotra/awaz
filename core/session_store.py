@@ -3,21 +3,20 @@ from datetime import datetime, timedelta
 from typing import Optional
 from dataclasses import dataclass, field
 
-from core.models import ProcessRequest, LLMResult, SpeakerRecognitionResult
+from core.models import ProcessRequest, LLMResult
 
 
 @dataclass
 class PipelineSession:
     session_id: str
     transcript: str
-    detected_language: str
-    speaker: SpeakerRecognitionResult
+    detected_language: Optional[str]
     original_request: ProcessRequest
     llm_result: LLMResult
     audio_bytes: bytes
     voice_gender: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.utcnow)
-    tts_result: Optional[dict] = field(default=None)   # pre-computed TTS (speculative)
+    tts_result: Optional[dict] = field(default=None)
 
     def is_expired(self) -> bool:
         return datetime.utcnow() > self.created_at + timedelta(minutes=10)
@@ -30,19 +29,17 @@ class SessionStore:
     def create(
         self,
         transcript: str,
-        detected_language: str,
-        speaker: SpeakerRecognitionResult,
+        detected_language: Optional[str],
         original_request: ProcessRequest,
         llm_result: LLMResult,
         audio_bytes: bytes,
-        voice_gender: Optional[str] = None,     # new — carries onboarding choice forward
+        voice_gender: Optional[str] = None,
     ) -> PipelineSession:
         session_id = str(uuid.uuid4())
         session = PipelineSession(
             session_id=session_id,
             transcript=transcript,
             detected_language=detected_language,
-            speaker=speaker,
             original_request=original_request,
             llm_result=llm_result,
             audio_bytes=audio_bytes,

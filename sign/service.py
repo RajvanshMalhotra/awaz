@@ -2,9 +2,6 @@ import logging
 from functools import lru_cache
 from pathlib import Path
 
-import numpy as np
-import onnxruntime as ort
-
 logger = logging.getLogger(__name__)
 
 MODEL_DIR = Path(__file__).parent / "models"
@@ -38,28 +35,25 @@ def _download_model() -> None:
         logger.warning("ISLR model download failed: %s — rule-based fallback active", e)
 
 
-def _normalize(frames: list[list[list[float]]]) -> np.ndarray:
-    """Resample to 64 frames and normalize landmarks relative to wrist. Returns (1, 64, 63) float32."""
+def _normalize(frames: list[list[list[float]]]):
+    import numpy as np
     TARGET = 64
-    arr = np.array(frames, dtype=np.float32)  # (N, 21, 3)
+    arr = np.array(frames, dtype=np.float32)
     N = arr.shape[0]
     if N == 0:
         return np.zeros((1, TARGET, 63), dtype=np.float32)
-
     idx = np.round(np.linspace(0, N - 1, TARGET)).astype(int)
-    arr = arr[idx]  # (64, 21, 3)
-
+    arr = arr[idx]
     wrist = arr[:, 0:1, :]
     arr -= wrist
     scale = np.max(np.abs(arr), axis=(1, 2), keepdims=True) + 1e-8
     arr /= scale
-
     return arr.reshape(1, TARGET, 63).astype(np.float32)
 
 
 class SignService:
     def __init__(self) -> None:
-        self._session: ort.InferenceSession | None = None
+        self._session = None
         self._labels: list[str] = _FALLBACK_LABELS
         _download_model()
         self._load()
@@ -69,6 +63,7 @@ class SignService:
             logger.warning("ONNX model not found — rule-based fallback active")
             return
         try:
+            import onnxruntime as ort
             self._session = ort.InferenceSession(
                 str(MODEL_PATH), providers=["CPUExecutionProvider"]
             )
@@ -77,18 +72,12 @@ class SignService:
             logger.warning("Failed to load ONNX model: %s", e)
 
     def classify(self, landmark_frames: list[list[list[float]]]) -> str:
-        """
-        Classify a hand landmark sequence.
-        landmark_frames: N frames × 21 landmarks × [x, y, z]
-        Returns a word from the ASL vocabulary.
-        """
         if not landmark_frames:
             return ""
-
         if self._session is None:
             return self._rule_fallback(landmark_frames)
-
         try:
+            import numpy as np
             x = _normalize(landmark_frames)
             input_name = self._session.get_inputs()[0].name
             outputs = self._session.run(None, {input_name: x})
@@ -99,9 +88,9 @@ class SignService:
             return self._rule_fallback(landmark_frames)
 
     def _rule_fallback(self, frames: list[list[list[float]]]) -> str:
-        """Count extended fingers from the middle frame and return a gesture label."""
         if not frames:
             return ""
+        import numpy as np
         lms = np.array(frames[len(frames) // 2], dtype=np.float32)
         tips = [4, 8, 12, 16, 20]
         mcps = [2, 5, 9, 13, 17]

@@ -12,7 +12,7 @@ If no profile exists (fallback):
 """
 
 import json
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 from groq import AsyncGroq
 
@@ -48,17 +48,22 @@ MOOD_TAG_HINTS: dict[str, list[str]] = {
 
 # ─── Fallback prompt (no profile) ────────────────────────────────────────────
 
-FALLBACK_PROMPT = """You are a voice assistant for someone who is unable to speak.
+FALLBACK_PROMPT = """ABSOLUTE RULE — use hinglish only : Write every word in Roman script (a-z). \
+Zero Devanagari, zero Urdu. Hindi words must be romanized: "yaar", "kya", "bol raha hai". \
+The TTS will break if you use any non-Roman character.
 
-YOUR JOB: Take what the user wants to say and generate a natural, expressive spoken response in Hinglish. Then insert Mulberry inline tags to make the TTS delivery expressive.
+You are a voice assistant for someone who is unable to speak.
+
+YOUR JOB depends on the input prefix:
+- "Reply to: ..." — someone said this to the user. Generate what the user would say back in natural Hinglish.
+- "Express: ..." — the user typed what they want to say. Rephrase it naturally and add Mulberry tags.
 
 RULES:
-1. Keep the core meaning — do not change the topic or add unrelated content
-2. Rephrase into natural spoken Hinglish — conversational, not written
-3. Keep it concise: 1–3 sentences maximum
-4. Insert 1–3 Mulberry inline tags at moments where a natural sound/expression fits
-5. Always reply in Roman script only (no Devanagari)
-6. If mood_override is set, match that emotional tone in the words and tags
+1. Keep the core meaning — do not change the topic
+2. Natural spoken Hinglish — Roman script only, no Devanagari
+3. 1–3 sentences maximum
+4. Insert 1–3 Mulberry inline tags at expressive moments
+5. If mood_override is set, match that emotional tone
 
 Available inline tags: {tags}
 
@@ -119,6 +124,7 @@ class LLMService:
         speaker_name: Optional[str] = None,
         mood_override: Optional[str] = None,
         extra_text: Optional[str] = None,
+        mode: str = "respond",
     ) -> LLMResult:
         """
         Generate an expressive Hinglish reply.
@@ -134,7 +140,7 @@ class LLMService:
             LLMResult with expressive_text, detected_mood, reasoning.
         """
         prompt = self._build_prompt(
-            transcript, relationship, speaker_name, mood_override, extra_text
+            transcript, relationship, speaker_name, mood_override, extra_text, mode
         )
 
         response = await self._client.chat.completions.create(
@@ -151,6 +157,35 @@ class LLMService:
         content = response.choices[0].message.content
         return self._parse_response(content or "")
 
+    async def generate_stream(
+        self,
+        transcript: str,
+        relationship: Relationship,
+        speaker_name: Optional[str] = None,
+        mood_override: Optional[str] = None,
+        extra_text: Optional[str] = None,
+        mode: str = "respond",
+    ) -> AsyncGenerator[str, None]:
+        """Stream raw JSON tokens — caller extracts fields as they arrive."""
+        prompt = self._build_prompt(
+            transcript, relationship, speaker_name, mood_override, extra_text, mode
+        )
+        stream = await self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": self._system_prompt},
+                {"role": "user",   "content": prompt},
+            ],
+            temperature=0.7,
+            max_tokens=80,
+            response_format={"type": "json_object"},
+            stream=True,
+        )
+        async for chunk in stream:
+            token = chunk.choices[0].delta.content or ""
+            if token:
+                yield token
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -162,10 +197,12 @@ class LLMService:
         speaker_name: Optional[str],
         mood_override: Optional[str],
         extra_text: Optional[str],
+        mode: str = "respond",
     ) -> str:
         mood = mood_override or "auto"
+        prefix = "Reply to" if mode == "respond" else "Express"
         lines = [
-            f'What {self._profile_name or "the user"} wants to say: "{transcript}"',
+            f'{prefix}: "{transcript}"',
             f"mood_override: {mood}",
         ]
 

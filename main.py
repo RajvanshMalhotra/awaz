@@ -87,18 +87,10 @@ from api.onboarding import router as onboarding_router
 from api.pipeline import router as pipeline_router
 from api.ws import router as ws_router
 from core.session_store import session_store
-from speaker.service import get_speaker_service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Pre-warm speaker model so first request isn't slow (~5-10s cold start)
-    try:
-        await get_speaker_service().initialize()
-        print("[startup] Speaker model ready")
-    except Exception as e:
-        print(f"[startup] Speaker model pre-warm failed (will lazy-load): {e}")
-
     async def purge_loop():
         while True:
             await asyncio.sleep(300)
@@ -118,6 +110,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+_extra_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -126,6 +121,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
+        *_extra_origins,
     ],
     allow_credentials=True,
     allow_methods=["*"],

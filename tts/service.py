@@ -36,44 +36,19 @@ def _get_http_client() -> httpx.AsyncClient:
 
 
 
-# Maps detected_mood → Mulberry description emotion word (from vd.md vocabulary)
-# Mulberry understands: neutral, energetic, excited, sad, sarcastic, dry, crying, angry
-MOOD_TO_MULBERRY_EMOTION: dict[str, str] = {
-    "happy":        "energetic",
-    "sad":          "sad",
-    "excited":      "excited",
-    "calm":         "neutral",
-    "confident":    "energetic",
-    "empathetic":   "neutral",
-    "professional": "neutral",
-    "sarcastic":    "sarcastic, dry",
-    "angry":        "angry",
-    "neutral":      "neutral",
-    "whispering":   "neutral",
-    "laughing":     "energetic",
-    "shocked":      "excited",
-    "scared":       "neutral",
-}
-
 DEFAULT_DESCRIPTION = "a warm 20s hindi accent voice, conversational pacing, casual register"
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def _build_description(detected_mood: str) -> str:
+def _build_description(_detected_mood: str = "") -> str:
     """
-    Profile base description (from onboarding) + Mulberry emotion word.
-    Falls back to DEFAULT_DESCRIPTION if no profile exists.
-    Text already contains Mulberry inline tags (<laugh>, <sigh>, etc.) —
-    the description sets the overall character; tags handle specific moments.
+    Returns the base voice description only — no emotion modifier.
+    Emotion is handled entirely via inline tags in the text (<chuckle>, <gasp>, etc.).
+    Adding an emotion word to the description fights against inline tags and suppresses them.
     """
-    profile     = user_profile_store.get()
-    base        = profile.mulberry_description if profile else DEFAULT_DESCRIPTION
-    emotion_mod = MOOD_TO_MULBERRY_EMOTION.get(detected_mood.lower(), "neutral")
-
-    if emotion_mod and emotion_mod not in base:
-        return f"{base}, {emotion_mod}"
-    return base
+    profile = user_profile_store.get()
+    return profile.mulberry_description if profile else DEFAULT_DESCRIPTION
 
 
 # ─── Payload builder ─────────────────────────────────────────────────────────
@@ -87,7 +62,7 @@ def build_tts_payload(expressive_text: str, detected_mood: str = "neutral", f0_u
     return {
         "model":       "mulberry",
         "text":        expressive_text,
-        "description": _build_description(detected_mood),
+        "description": _build_description(),
         "f0_up_key":   f0_up_key,
     }
 

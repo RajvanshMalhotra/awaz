@@ -5,12 +5,10 @@ from functools import lru_cache
 class Settings(BaseSettings):
     groq_api_key: str
     silk_api_key: str
+    sarvam_api_key: str
     silk_default_speaker: str = "speaker_1"
     silk_default_f0_up_key: int = 0
     user_profile_path: str = "user_profile.json"
-    voice_store_path: str = "voice_store/speakers.json"
-    voice_audio_dir: str = "voice_store/audio"
-    speaker_similarity_threshold: float = 0.82
     groq_llm_model: str = "llama-3.3-70b-versatile"
     tts_endpoint: str = "http://localhost:9000/synthesize"
 

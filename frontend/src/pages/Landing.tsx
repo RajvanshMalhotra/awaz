@@ -124,86 +124,106 @@ export function Landing({ onEnter }: LandingProps) {
             </div>
           }
         >
-          {/* ── Mock app UI ── */}
-          <div className="h-full bg-[#0a0a12] rounded-2xl p-5 flex flex-col gap-3 font-mono text-xs">
+          {/* ── Faithful replica of the real empty-state UI ── */}
+          <div className="h-full rounded-2xl flex flex-col overflow-hidden relative"
+            style={{ background: '#000' }}
+          >
+            {/* Blue-purple orb — matches the actual app background */}
+            <div className="absolute inset-0 rounded-2xl" style={{
+              background: [
+                'radial-gradient(ellipse 160% 110% at 50% 125%, #4040b8 0%, #3030a8 12%, #202080 25%, #121250 40%, #080830 55%, transparent 70%)',
+                'radial-gradient(ellipse 100% 70% at 50% 120%, rgba(80,70,200,0.35) 0%, transparent 55%)',
+              ].join(', '),
+            }} />
 
-            {/* Top bar */}
-            <div className="flex items-center justify-between">
-              <span className="text-white/60 font-black text-sm tracking-tight">AWAAZ</span>
-              <div className="flex items-center gap-2">
-                <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full text-[10px] font-semibold">2.3s</span>
-                <div className="w-6 h-6 rounded-full bg-indigo-500/30 flex items-center justify-center text-[10px] text-indigo-300">R</div>
+            {/* Header */}
+            <div className="relative z-10 flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
+              <span className="text-white font-black text-sm tracking-[-0.04em]">AWAAZ</span>
+              <div className="w-7 h-7 rounded-full bg-indigo-500/40 border border-indigo-400/30 flex items-center justify-center text-[10px] font-bold text-indigo-200">
+                D
               </div>
             </div>
 
-            {/* Speaker row */}
-            <div className="flex items-center gap-2 bg-white/5 rounded-xl p-2.5">
-              <div className="relative">
-                <div className="w-7 h-7 rounded-full bg-indigo-500/30 flex items-center justify-center text-[10px] font-bold text-indigo-300">R</div>
-                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 border border-[#0a0a12] rounded-full" />
-              </div>
-              <div>
-                <div className="text-white/70 font-semibold">Raj</div>
-                <div className="text-white/25 text-[10px]">friend · 94% match</div>
-              </div>
-            </div>
+            {/* Example chat exchanges */}
+            <div className="relative z-10 flex-1 flex flex-col justify-end px-3 py-2 gap-2 overflow-hidden">
 
-            {/* Transcript card */}
-            <div className="bg-white/5 rounded-xl p-3">
-              <div className="text-white/30 text-[10px] mb-1 uppercase tracking-widest">Transcript</div>
-              <div className="text-white/65">Yaar sun, I have this amazing idea for the app, you have to hear this—</div>
-            </div>
-
-            {/* Expressive text card */}
-            <div className="bg-indigo-900/30 border border-indigo-500/20 rounded-xl p-3">
-              <div className="text-indigo-300/60 text-[10px] mb-1 uppercase tracking-widest">Expressive · auto-inferred: excited</div>
-              <div className="text-white/75">
-                Yaar sun, <span className="text-yellow-300/80">&lt;excited&gt;</span> I have this amazing idea for the app,{' '}
-                <span className="text-yellow-300/80">&lt;gasp&gt;</span> you have to hear this—
-              </div>
-            </div>
-
-            {/* Waveform */}
-            <div className="flex-1 flex items-end gap-px px-1">
-              {Array.from({ length: 48 }, (_, i) => {
-                const h = Math.abs(Math.sin(i * 0.35) * 0.6 + Math.sin(i * 0.8) * 0.4)
-                return (
-                  <div
-                    key={i}
-                    className="flex-1 rounded-full"
-                    style={{
-                      height: `${Math.max(10, h * 100)}%`,
-                      background: `rgba(99,102,241,${0.2 + h * 0.5})`,
-                    }}
-                  />
-                )
-              })}
-            </div>
-
-            {/* Action buttons */}
-            <div className="flex gap-2">
-              <div className="flex-1 bg-emerald-500 rounded-xl py-2 text-center text-white font-semibold text-xs">
-                ▶ Speak It
-              </div>
-              <div className="flex-1 bg-white/8 rounded-xl py-2 text-center text-white/40 text-xs">
-                ↺ Retry
-              </div>
-            </div>
-
-            {/* Voice dock mock */}
-            <div className="flex items-center justify-center gap-2 pt-1">
-              {[
-                { label: 'R', color: 'indigo', active: true },
-                { label: 'M', color: 'purple', active: false },
-                { label: 'A', color: 'rose', active: false },
-              ].map(v => (
-                <div key={v.label} className="relative">
-                  <div className={`w-7 h-7 rounded-full bg-${v.color}-500/20 flex items-center justify-center text-[10px] font-bold text-${v.color}-300`}>
-                    {v.label}
-                  </div>
-                  <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[#0a0a12] ${v.active ? 'bg-green-500' : 'bg-red-500'}`} />
+              {/* Exchange 1 */}
+              <div className="space-y-1">
+                <div className="bg-white/4 border border-white/8 rounded-xl p-2.5">
+                  <p className="text-[8px] text-white/25 uppercase tracking-widest mb-1">They said</p>
+                  <p className="text-white/55 text-[10px] leading-relaxed">Yaar sun, I have this amazing idea—</p>
                 </div>
-              ))}
+                <div className="bg-indigo-900/15 border border-indigo-500/20 rounded-xl p-2.5">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-[8px] bg-indigo-500/15 text-indigo-300 px-1.5 py-0.5 rounded-full font-mono">excited</span>
+                    <span className="text-[8px] text-emerald-400/70 font-mono">2.3s</span>
+                  </div>
+                  <p className="text-white/70 text-[10px] leading-relaxed font-mono">
+                    Haan bata! <span className="text-yellow-300/80">&lt;excited&gt;</span> kya idea hai yaar?
+                  </p>
+                </div>
+              </div>
+
+              {/* Exchange 2 */}
+              <div className="space-y-1">
+                <div className="bg-white/4 border border-white/8 rounded-xl p-2.5">
+                  <p className="text-[8px] text-white/25 uppercase tracking-widest mb-1">They said</p>
+                  <p className="text-white/55 text-[10px] leading-relaxed">Seriously bro, you're gonna love this</p>
+                </div>
+                <div className="bg-indigo-900/15 border border-indigo-500/20 rounded-xl p-2.5">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-[8px] bg-indigo-500/15 text-indigo-300 px-1.5 py-0.5 rounded-full font-mono">laughing</span>
+                    <span className="text-[8px] text-emerald-400/70 font-mono">1.8s</span>
+                  </div>
+                  <p className="text-white/70 text-[10px] leading-relaxed font-mono">
+                    <span className="text-yellow-300/80">&lt;chuckle&gt;</span> pakka yaar, jaldi bol na!
+                  </p>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Emotion dock — white pill, matches real dock exactly */}
+            <div className="relative z-10 flex justify-center pb-2.5">
+              <div className="flex items-center gap-0.5 bg-white shadow-2xl rounded-full px-2.5 py-1.5">
+                {[
+                  { e: '🎭', dot: true },
+                  { e: '😊', dot: false },
+                  { e: '🤩', dot: false },
+                  { e: '😌', dot: false },
+                  { e: '😏', dot: false },
+                  { e: '😠', dot: false },
+                  { e: '🤫', dot: false },
+                  { e: '😐', dot: false },
+                ].map(({ e, dot }, i) => (
+                  <div key={i} className="relative w-7 h-7 flex items-center justify-center text-base">
+                    {e}
+                    {dot && <div className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 border-2 border-white rounded-full" />}
+                  </div>
+                ))}
+                <div className="w-px h-4 bg-gray-200 mx-1" />
+                <div className="w-7 h-7 flex items-center justify-center text-gray-400 text-sm font-semibold">+</div>
+              </div>
+            </div>
+
+            {/* Input bar */}
+            <div className="relative z-10 px-2.5 pb-3">
+              <div className="bg-white/8 border border-white/10 rounded-2xl flex items-center gap-2 px-2 py-1.5">
+                <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.8">
+                    <rect x="9" y="2" width="6" height="12" rx="3" />
+                    <path d="M5 10a7 7 0 0 0 14 0" />
+                    <line x1="12" y1="19" x2="12" y2="22" />
+                    <line x1="8" y1="22" x2="16" y2="22" />
+                  </svg>
+                </div>
+                <div className="flex-1 text-white/25 text-[10px]">Type what you want to say… (Enter to send)</div>
+                <div className="w-8 h-8 rounded-xl bg-white/90 flex items-center justify-center flex-shrink-0">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#050508" strokeWidth="2.5">
+                    <path d="M12 19V5M5 12l7-7 7 7" />
+                  </svg>
+                </div>
+              </div>
             </div>
           </div>
         </ContainerScroll>

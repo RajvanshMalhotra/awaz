@@ -237,12 +237,11 @@ from pydantic import BaseModel
 
 from core.models import (
     ProcessResponse, ApproveRequest, ApproveResponse,
-    DenyRequest, DenyResponse, SaveSpeakerResponse,
-    Mood, Relationship, SpeakerRecognitionResult,
+    DenyRequest, DenyResponse,
+    Mood, Relationship,
 )
 from core.session_store import session_store
 from stt.service import get_stt_service
-from speaker.service import get_speaker_service
 from llm.service import get_llm_service
 from tts.service import generate_tts_response
 from sign.service import get_sign_service
@@ -326,98 +325,37 @@ async def process_audio(
     relationship: Relationship = Form(Relationship.friend),
     mood_override: Mood = Form(Mood.auto),
     extra_text: str | None = Form(None),
-    speaker_name_if_new: str | None = Form(None),
-    # Onboarding voice preference — stored in user profile on the frontend,
-    # forwarded here so TTS uses the right speaker from the very first request.
-    # Values: "female" | "female_alt" | "male" | "male_deep"
-    # or a raw Silk preset: "speaker_1" | "speaker_2" | "speaker_3" | "speaker_4"
     voice_gender: str | None = Form(None, description="User's onboarding voice choice"),
 ):
-    """
-    Main pipeline endpoint. Accepts audio + context, returns transcript,
-    speaker ID result, and LLM-generated expressive text.
-
-    Relationship resolution priority:
-    1. Known speaker → use their saved relationship (e.g. mom = parent)
-    2. Frontend sent a non-default relationship → use it
-    3. Default: friend
-
-    The response includes `effective_relationship` and `relationship_source`
-    so the frontend can show the pre-selected relationship in the UI.
-    """
     audio_bytes = await audio.read()
     filename = audio.filename or "audio.webm"
 
-    stt = get_stt_service()
-    speaker_svc = get_speaker_service()
-    llm = get_llm_service()
+    transcript_result = await get_stt_service().transcribe(audio_bytes, filename)
 
-    # Speaker ID starts immediately in the background (short-circuits if store is empty)
-    speaker_task = asyncio.create_task(speaker_svc.identify(audio_bytes))
-
-    # STT is the prerequisite for LLM — await it first
-    transcript_result = await stt.transcribe(audio_bytes, filename)
-
-    # Fire LLM as soon as transcript is ready, while speaker ID is still running.
-    # Use the frontend-provided relationship as a proxy; the actual speaker relationship
-    # appears in the response metadata but doesn't block text generation.
-    llm_task = asyncio.create_task(llm.generate(
+    llm_result = await get_llm_service().generate(
         transcript=transcript_result.transcript,
-        speaker_name=None,
         relationship=relationship,
         mood_override=mood_override,
         extra_text=extra_text,
-    ))
+    )
 
-    # Await both — whichever is slower determines the wall-clock time
-    speaker_result, llm_result = await asyncio.gather(speaker_task, llm_task)
-
-    # If user pre-named a new speaker in the same request, auto-save
-    if speaker_result.is_new_speaker and speaker_name_if_new:
-        saved = await speaker_svc.save_speaker(
-            speaker_name_if_new, audio_bytes, relationship
-        )
-        speaker_result = SpeakerRecognitionResult(
-            speaker_id=saved.speaker_id,
-            name=saved.name,
-            relationship=saved.relationship,
-            similarity=1.0,
-            is_new_speaker=False,
-        )
-
-    # Resolve effective relationship (for response metadata)
-    if speaker_result.relationship is not None:
-        effective_relationship = speaker_result.relationship
-        relationship_source = "speaker_profile"
-    elif relationship != Relationship.friend:
-        effective_relationship = relationship
-        relationship_source = "frontend_override"
-    else:
-        effective_relationship = Relationship.friend
-        relationship_source = "default"
+    effective_relationship = relationship
+    relationship_source = "frontend_override" if relationship != Relationship.friend else "default"
 
     session = session_store.create(
         transcript=transcript_result.transcript,
         detected_language=transcript_result.detected_language,
-        speaker=speaker_result,
-        original_request=_make_process_request(
-            effective_relationship, mood_override, extra_text, speaker_name_if_new
-        ),
+        original_request=_make_process_request(effective_relationship, mood_override, extra_text),
         llm_result=llm_result,
         audio_bytes=audio_bytes,
-        voice_gender=voice_gender,          # persisted so /approve doesn't need it again
+        voice_gender=voice_gender,
     )
 
-    # Speculative TTS: start synthesis now so it's ready when user clicks Approve.
-    # Runs concurrently with the user reading the transcript — typical review time
-    # is 3-10 seconds, which means TTS is done before Approve is clicked.
     asyncio.create_task(_precompute_tts(session.session_id))
 
     return ProcessResponse(
         transcript=transcript_result.transcript,
         detected_language=transcript_result.detected_language,
-        speaker=speaker_result,
-        save_voice_prompt=speaker_result.is_new_speaker,
         effective_relationship=effective_relationship,
         relationship_source=relationship_source,
         llm=llm_result,
@@ -438,25 +376,18 @@ async def process_text(
     mood_override: Mood = Form(Mood.auto),
     extra_text: str | None = Form(None),
 ):
-    llm = get_llm_service()
-    llm_result = await llm.generate(
+    llm_result = await get_llm_service().generate(
         transcript=text,
-        speaker_name=None,
         relationship=relationship,
         mood_override=mood_override,
         extra_text=extra_text,
-    )
-
-    empty_speaker = SpeakerRecognitionResult(
-        speaker_id=None, name=None, relationship=None,
-        similarity=0.0, is_new_speaker=False,
+        mode="express",
     )
 
     session = session_store.create(
         transcript=text,
         detected_language=None,
-        speaker=empty_speaker,
-        original_request=_make_process_request(relationship, mood_override, extra_text, None),
+        original_request=_make_process_request(relationship, mood_override, extra_text),
         llm_result=llm_result,
         audio_bytes=b"",
     )
@@ -466,8 +397,6 @@ async def process_text(
     return ProcessResponse(
         transcript=text,
         detected_language=None,
-        speaker=empty_speaker,
-        save_voice_prompt=False,
         effective_relationship=relationship,
         relationship_source="frontend_override",
         llm=llm_result,
@@ -494,6 +423,7 @@ async def speak_pipeline(
         transcript=text,
         relationship=Relationship.friend,
         mood_override=mood_override.value,
+        mode="express",
     )
 
     tts_result = await generate_tts_response(
@@ -569,10 +499,8 @@ async def deny(body: DenyRequest):
     effective_relationship = body.relationship_override or orig.relationship
     effective_extra        = body.extra_text            or orig.extra_text
 
-    llm = get_llm_service()
-    new_llm_result = await llm.generate(
+    new_llm_result = await get_llm_service().generate(
         transcript=session.transcript,
-        speaker_name=session.speaker.name,
         relationship=effective_relationship,
         mood_override=effective_mood,
         extra_text=effective_extra,
@@ -581,13 +509,10 @@ async def deny(body: DenyRequest):
     new_session = session_store.create(
         transcript=session.transcript,
         detected_language=session.detected_language,
-        speaker=session.speaker,
-        original_request=_make_process_request(
-            effective_relationship, effective_mood, effective_extra, None
-        ),
+        original_request=_make_process_request(effective_relationship, effective_mood, effective_extra),
         llm_result=new_llm_result,
         audio_bytes=session.audio_bytes,
-        voice_gender=getattr(session, "voice_gender", None),
+        voice_gender=session.voice_gender,
     )
 
     # Precompute TTS for the retry session too
@@ -597,62 +522,6 @@ async def deny(body: DenyRequest):
         llm=new_llm_result,
         session_id=new_session.session_id,
     )
-
-
-# ---------------------------------------------------------------------------
-# POST /pipeline/save-speaker
-# ---------------------------------------------------------------------------
-
-@router.post("/save-speaker", response_model=SaveSpeakerResponse)
-async def save_speaker(
-    session_id: str = Form(...),
-    name: str = Form(..., min_length=1, max_length=64),
-    relationship: Relationship = Form(Relationship.friend),
-):
-    """
-    Called when user confirms "Save this voice?".
-    Uses audio stored in the session to create the voice profile.
-    The relationship field permanently links this voice to Mom, Dad, etc.
-    """
-    session = session_store.get(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found or expired")
-
-    if not session.speaker.is_new_speaker:
-        raise HTTPException(status_code=400, detail="Speaker already identified")
-
-    speaker_svc = get_speaker_service()
-    profile = await speaker_svc.save_speaker(name, session.audio_bytes, relationship)
-
-    return SaveSpeakerResponse(
-        speaker_id=profile.speaker_id,
-        name=profile.name,
-        relationship=profile.relationship,
-        message=f"Voice profile saved for {profile.name} ({relationship.value})",
-    )
-
-
-# ---------------------------------------------------------------------------
-# DELETE /pipeline/speakers  — wipe all enrolled voice profiles
-# ---------------------------------------------------------------------------
-
-@router.get("/speakers")
-async def list_speakers():
-    """List all enrolled voice profiles (no embeddings)."""
-    svc = get_speaker_service()
-    return {
-        "speakers": [
-            {"speaker_id": s.speaker_id, "name": s.name, "relationship": s.relationship.value}
-            for s in svc.get_all_speakers()
-        ]
-    }
-
-
-@router.delete("/speakers")
-async def delete_all_speakers():
-    speaker_svc = get_speaker_service()
-    count = speaker_svc.clear_all()
-    return {"deleted": count, "message": f"Cleared {count} speaker profile(s)"}
 
 
 # ---------------------------------------------------------------------------
@@ -680,11 +549,10 @@ async def sign_language(body: SignLanguageRequest) -> SignLanguageResponse:
 # Helper
 # ---------------------------------------------------------------------------
 
-def _make_process_request(relationship, mood_override, extra_text, speaker_name_if_new):
+def _make_process_request(relationship, mood_override, extra_text):
     from core.models import ProcessRequest
     return ProcessRequest(
         relationship=relationship,
         mood_override=mood_override,
         extra_text=extra_text,
-        speaker_name_if_new=speaker_name_if_new,
     )

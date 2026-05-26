@@ -97,6 +97,7 @@ export default function App() {
           onProfileUpdate={handleProfileUpdate}
           onAddProfile={handleAddProfile}
           onDeleteProfile={handleDeleteProfile}
+          onGoHome={() => setAppState('landing')}
         />
       )}
     </>

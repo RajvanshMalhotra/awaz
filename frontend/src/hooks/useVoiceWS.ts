@@ -25,6 +25,7 @@ export function useVoiceWS() {
   const audioCtxRef = useRef<AudioContext | null>(null)
   const nextStartTimeRef = useRef(0)
   const audioEndedRef = useRef(false)
+  const pendingSourcesRef = useRef(0)
   const wsRef = useRef<WebSocket | null>(null)
 
   const submit = useCallback((blob: Blob, mood: string) => {
@@ -77,6 +78,7 @@ export function useVoiceWS() {
           audioCtxRef.current = ctx
           nextStartTimeRef.current = ctx.currentTime + 0.1
           audioEndedRef.current = false
+          pendingSourcesRef.current = 0
           setState(s => ({ ...s, isPlayingAudio: true }))
 
         } else if (msg.type === 'audio_end') {
@@ -112,8 +114,10 @@ export function useVoiceWS() {
         const startTime = Math.max(nextStartTimeRef.current, ctx.currentTime)
         source.start(startTime)
         nextStartTimeRef.current = startTime + buffer.duration
+        pendingSourcesRef.current += 1
         source.onended = () => {
-          if (audioEndedRef.current) {
+          pendingSourcesRef.current -= 1
+          if (audioEndedRef.current && pendingSourcesRef.current === 0) {
             setState(s => ({ ...s, isPlayingAudio: false }))
           }
         }
