@@ -14,6 +14,6 @@ export default defineConfig({
       '/tts_output': 'http://localhost:8000',
     },
   },
-  base: '/ui/',
+  base: '/',
   build: { outDir: 'dist', emptyOutDir: true },
 })

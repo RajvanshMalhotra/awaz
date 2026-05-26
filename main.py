@@ -137,9 +137,9 @@ app.mount("/tts_output", StaticFiles(directory="tts_output"), name="tts_output")
 app.include_router(onboarding_router)
 app.include_router(pipeline_router)
 
-# Mount the built React frontend as SPA
+# Serve built React SPA — assets at /assets, catch-all returns index.html
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
-if os.path.isdir(FRONTEND_DIST):
+if os.path.isdir(os.path.join(FRONTEND_DIST, "assets")):
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="frontend-assets")
 
 
