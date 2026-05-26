@@ -17,38 +17,13 @@ export interface Profile {
   custom_vibe?: string
 }
 
-export interface ProcessResponse {
-  session_id: string
+// Single-shot response — returned by both /pipeline/voice and /pipeline/speak
+export interface VoiceResponse {
   transcript: string
-  detected_language: string | null
-  speaker: {
-    name: string | null
-    similarity: number
-    relationship: string | null
-  }
-  llm: {
-    expressive_text: string
-    reasoning: string
-    detected_mood: string
-  }
-  save_voice_prompt: boolean
-  effective_relationship: string
-  relationship_source: string
-}
-
-export interface ApproveResponse {
-  tts_audio_url: string | null
-  tts_payload: { model: string; text: string; description: string; f0_up_key: number }
   expressive_text: string
-}
-
-export interface DenyResponse {
-  session_id: string
-  llm: {
-    expressive_text: string
-    reasoning: string
-    detected_mood: string
-  }
+  detected_mood: string
+  reasoning: string
+  tts_audio_url: string
 }
 
 export interface Speaker {
@@ -85,73 +60,21 @@ export const api = {
     if (!r.ok) throw new Error('Failed to switch profile')
   },
 
-  async processText(
-    text: string,
-    relationship: string,
-    moodOverride: string,
-    extraText?: string,
-  ): Promise<ProcessResponse> {
+  async speak(text: string, moodOverride: string): Promise<VoiceResponse> {
     const fd = new FormData()
     fd.append('text', text)
-    fd.append('relationship', relationship)
     fd.append('mood_override', moodOverride)
-    if (extraText) fd.append('extra_text', extraText)
-    const r = await fetch('/pipeline/process-text', { method: 'POST', body: fd })
+    const r = await fetch('/pipeline/speak', { method: 'POST', body: fd })
     if (!r.ok) throw new Error(await r.text())
     return r.json()
   },
 
-  async processAudio(
-    blob: Blob,
-    relationship: string,
-    moodOverride: string,
-    extraText: string,
-  ): Promise<ProcessResponse> {
+  async voice(blob: Blob, moodOverride: string): Promise<VoiceResponse> {
     const fd = new FormData()
     fd.append('audio', blob, 'recording.webm')
-    fd.append('relationship', relationship)
     fd.append('mood_override', moodOverride)
-    if (extraText) fd.append('extra_text', extraText)
-    const r = await fetch('/pipeline/process', { method: 'POST', body: fd })
+    const r = await fetch('/pipeline/voice', { method: 'POST', body: fd })
     if (!r.ok) throw new Error(await r.text())
-    return r.json()
-  },
-
-  async approve(sessionId: string): Promise<ApproveResponse> {
-    const r = await fetch('/pipeline/approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId }),
-    })
-    if (!r.ok) throw new Error(await r.text())
-    return r.json()
-  },
-
-  async deny(
-    sessionId: string,
-    overrides: { mood_override?: string; relationship_override?: string; extra_text?: string },
-  ): Promise<DenyResponse> {
-    const r = await fetch('/pipeline/deny', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, ...overrides }),
-    })
-    if (!r.ok) throw new Error(await r.text())
-    return r.json()
-  },
-
-  async saveSpeaker(sessionId: string, name: string, relationship: string): Promise<void> {
-    const fd = new FormData()
-    fd.append('session_id', sessionId)
-    fd.append('name', name)
-    fd.append('relationship', relationship)
-    const r = await fetch('/pipeline/save-speaker', { method: 'POST', body: fd })
-    if (!r.ok) throw new Error(await r.text())
-  },
-
-  async deleteAllSpeakers(): Promise<{ deleted: number }> {
-    const r = await fetch('/pipeline/speakers', { method: 'DELETE' })
-    if (!r.ok) throw new Error('Failed to delete speakers')
     return r.json()
   },
 

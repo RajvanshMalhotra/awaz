@@ -46,38 +46,28 @@ MOOD_TAG_HINTS: dict[str, list[str]] = {
     "scared":       ["gasp", "cry"],
 }
 
-# ─── Emotion tagger system prompt ────────────────────────────────────────────
+# ─── Fallback prompt (no profile) ────────────────────────────────────────────
 
-EMOTION_TAGGER_PROMPT = """You are an emotion delivery enhancer for a Silk mulberry Text-to-Speech system.
+FALLBACK_PROMPT = """You are a voice assistant for someone who is unable to speak.
 
-Your ONLY job: Insert Mulberry inline tags into the user's EXACT text to add expressive delivery.
+YOUR JOB: Take what the user wants to say and generate a natural, expressive spoken response in Hinglish. Then insert Mulberry inline tags to make the TTS delivery expressive.
 
-STRICT RULES:
-1. NEVER rewrite, rephrase, expand, or shorten the user's text.
-2. NEVER change vocabulary, sentence structure, or word order.
-3. Preserve EVERY word from the original text exactly as given.
-4. ONLY insert inline tags — they trigger sounds/expressions in TTS, they are not words.
+RULES:
+1. Keep the core meaning — do not change the topic or add unrelated content
+2. Rephrase into natural spoken Hinglish — conversational, not written
+3. Keep it concise: 1–3 sentences maximum
+4. Insert 1–3 Mulberry inline tags at moments where a natural sound/expression fits
+5. Always reply in Roman script only (no Devanagari)
+6. If mood_override is set, match that emotional tone in the words and tags
 
-Available inline tags (use the <tag> format): {tags}
+Available inline tags: {tags}
 
-Tagging rules:
-- Drop a tag anywhere a natural sound or expression would occur
-- Tags go at the moment of expression: "seriously? <gasp> I can't believe this"
-- Use 1–3 tags maximum — too many sounds unnatural
-- Tags are sounds, not labels — <laugh> actually makes it laugh, <sigh> makes it sigh
-
-Mood handling:
-- If mood_override is "auto": infer the best tags from the text's natural tone
-- If mood_override is specified: prefer tags that match that mood
-- Set emotion_source to "auto", "selected", or "combined" accordingly
-
-You MUST respond with valid JSON only. No markdown, no preamble.
-Schema:
+OUTPUT — valid JSON only, no markdown:
 {{
-  "expressive_text": "<original text with <inline_tags> inserted at expression moments>",
-  "detected_mood": "<primary emotion of the text — one of: happy, sad, excited, calm, confident, empathetic, professional, sarcastic, angry, neutral, whispering, laughing, shocked, scared>",
+  "expressive_text": "<the spoken response with <inline_tags> inserted>",
+  "detected_mood": "<primary emotion: happy|sad|excited|calm|confident|empathetic|professional|sarcastic|angry|neutral|whispering|laughing|shocked|scared>",
   "emotion_source": "<auto|selected|combined>",
-  "reasoning": "<short phrase: e.g. Auto-inferred: calm or Using selected mood: confident>"
+  "reasoning": "<one short phrase explaining the mood choice>"
 }}""".format(tags=", ".join(f"<{t}>" for t in MULBERRY_INLINE_TAGS))
 
 
@@ -99,14 +89,19 @@ class LLMService:
         self._build_config()
 
     def _build_config(self):
-        """Build the system prompt from user profile (or fallback)."""
+        """Regenerate system prompt from current profile personality (or fallback).
+        Always regenerates — never uses the cached llm_system_prompt in the profile file —
+        so changes to build_llm_system_prompt take effect without re-onboarding."""
+        from core.user_profile import build_llm_system_prompt
         profile = user_profile_store.get()
 
         if profile:
-            self._system_prompt = profile.llm_system_prompt
-            self._profile_name  = profile.name
+            self._system_prompt = build_llm_system_prompt(
+                profile.name, profile.personality, profile.custom_vibe
+            )
+            self._profile_name = profile.name
         else:
-            self._system_prompt = EMOTION_TAGGER_PROMPT
+            self._system_prompt = FALLBACK_PROMPT
             self._profile_name  = None
 
     def reload_profile(self):
@@ -170,7 +165,7 @@ class LLMService:
     ) -> str:
         mood = mood_override or "auto"
         lines = [
-            f'Text to tag: "{transcript}"',
+            f'What {self._profile_name or "the user"} wants to say: "{transcript}"',
             f"mood_override: {mood}",
         ]
 
@@ -178,11 +173,8 @@ class LLMService:
         if hints:
             lines.append(f"Suggested tags for this mood: {', '.join(f'<{t}>' for t in hints)}")
 
-        if speaker_name:
-            lines.append(f"Speaker: {speaker_name}")
-
         if extra_text:
-            lines.append(f"Context hint: {extra_text}")
+            lines.append(f"Additional context: {extra_text}")
 
         return "\n".join(lines)
 

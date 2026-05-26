@@ -259,26 +259,22 @@ router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 @router.post("/voice")
 async def voice_pipeline(
     audio: UploadFile = File(...),
-    relationship: Relationship = Form(Relationship.friend),
     mood_override: Mood = Form(Mood.auto),
 ):
+    """
+    Single-shot pipeline for mute users:
+    voice → STT → LLM (generates expressive response in user's voice) → TTS.
+    No speaker identification — always uses the profile's default voice.
+    Target latency: ≤5s.
+    """
     audio_bytes = await audio.read()
     filename = audio.filename or "audio.webm"
 
-    stt = get_stt_service()
-    speaker_svc = get_speaker_service()
-    llm_svc = get_llm_service()
+    transcript_result = await get_stt_service().transcribe(audio_bytes, filename)
 
-    # STT and speaker ID concurrently
-    transcript_result, speaker_result = await asyncio.gather(
-        stt.transcribe(audio_bytes, filename),
-        speaker_svc.identify(audio_bytes),
-    )
-
-    llm_result = await llm_svc.generate(
+    llm_result = await get_llm_service().generate(
         transcript=transcript_result.transcript,
-        relationship=relationship,
-        speaker_name=speaker_result.name,
+        relationship=Relationship.friend,
         mood_override=mood_override.value,
     )
 
@@ -290,13 +286,10 @@ async def voice_pipeline(
 
     return {
         "transcript": transcript_result.transcript,
-        "detected_language": transcript_result.detected_language,
         "expressive_text": llm_result.expressive_text,
         "detected_mood": llm_result.detected_mood,
         "reasoning": llm_result.reasoning,
         "tts_audio_url": tts_result["tts_audio_url"],
-        "speaker_name": speaker_result.name,
-        "save_voice_prompt": speaker_result.is_new_speaker,
     }
 
 
@@ -480,6 +473,42 @@ async def process_text(
         llm=llm_result,
         session_id=session.session_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /pipeline/speak  — single-shot text input (no STT, no speaker ID)
+# text → LLM → TTS, returns audio URL directly. Mirrors /pipeline/voice.
+# ---------------------------------------------------------------------------
+
+@router.post("/speak")
+async def speak_pipeline(
+    text: str = Form(...),
+    mood_override: Mood = Form(Mood.auto),
+):
+    """
+    Text-input equivalent of /pipeline/voice.
+    Skips STT. LLM generates an expressive response, TTS synthesizes it.
+    Target latency: ≤3s.
+    """
+    llm_result = await get_llm_service().generate(
+        transcript=text,
+        relationship=Relationship.friend,
+        mood_override=mood_override.value,
+    )
+
+    tts_result = await generate_tts_response(
+        expressive_text=llm_result.expressive_text,
+        detected_mood=llm_result.detected_mood,
+        session_id=str(_uuid.uuid4()),
+    )
+
+    return {
+        "transcript": text,
+        "expressive_text": llm_result.expressive_text,
+        "detected_mood": llm_result.detected_mood,
+        "reasoning": llm_result.reasoning,
+        "tts_audio_url": tts_result["tts_audio_url"],
+    }
 
 
 # ---------------------------------------------------------------------------

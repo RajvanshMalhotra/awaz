@@ -51,7 +51,7 @@ export function Profile({ onSave, onClose }: ProfileProps) {
   }
 
   const handleDeleteSpeakers = async () => {
-    await api.deleteAllSpeakers()
+    // speaker management removed
   }
 
   if (loading) {

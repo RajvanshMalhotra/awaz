@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
-import type { ProcessResponse, ApproveResponse } from '@/lib/api'
+import type { VoiceResponse } from '@/lib/api'
+type ProcessResponse = VoiceResponse & { session_id: string; speaker: any; save_voice_prompt: boolean; effective_relationship: string; relationship_source: string; llm: any; detected_language: string | null }
+type ApproveResponse = { tts_audio_url: string | null; tts_payload: any; expressive_text: string }
 import { AudioPlayer } from './AudioPlayer'
 
 const EMOTIONS: Record<string, { bg: string; color: string; border: string }> = {

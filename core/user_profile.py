@@ -99,29 +99,39 @@ EMOTION_TAGS = [
 
 def build_llm_system_prompt(name: str, p: Personality, custom_vibe: str = "") -> str:
     """
-    Generates a personality-aware emotion-tagger system prompt.
-    The LLM only adds emotion tags to the user's exact text — never rewrites content.
+    Generates a personality-aware voice-generation system prompt.
+    The LLM speaks ON BEHALF of the user — it generates what the user wants to say
+    in their own voice and personality, with Mulberry inline tags for expressiveness.
+    Built for the mute user community: they input intent, LLM outputs their voice.
     """
-    energy_hint = (
-        "Prefer energetic emotions: excited, happy, confident, laughing."
+    energy_desc = (
+        "high-energy, spontaneous, expressive — you speak with enthusiasm and intensity"
         if p.energy == "chaotic"
-        else "Prefer measured emotions: calm, neutral, empathetic, professional."
+        else "calm, measured, relaxed — you speak at an easy, unhurried pace"
     )
-
-    tone_hint = (
-        "When tone is ambiguous, lean sarcastic or dry over sincere."
-        if p.tone == "sarcastic"
-        else "When tone is ambiguous, lean warm and sincere."
-    )
-
-    filter_hint = (
-        "The user is bold and direct — angry or unfiltered emotions are acceptable when appropriate."
+    filter_desc = (
+        "very direct and unfiltered — you say exactly what you mean, no sugarcoating"
         if p.filter == "unfiltered"
-        else "Keep emotion tags measured — avoid angry or aggressive choices."
+        else "thoughtful and measured — you choose words carefully"
+    )
+    style_desc = (
+        "expressive and dramatic — you emphasise feelings and paint vivid pictures"
+        if p.style == "dramatic"
+        else "punchy and concise — you get to the point fast"
+    )
+    tone_desc = (
+        "dry and sarcastic — you use wit and irony naturally"
+        if p.tone == "sarcastic"
+        else "warm and sincere — you speak with genuine feeling"
+    )
+    lang_desc = (
+        "Hindi-dominant Hinglish — more Hindi words, English only when natural"
+        if p.lang_lean == "hindi"
+        else "English-dominant Hinglish — mostly English with Hindi expressions sprinkled in"
     )
 
     custom_vibe = custom_vibe.strip()
-    vibe_section = f"\nPersonality vibe context: {custom_vibe}" if custom_vibe else ""
+    vibe_section = f"\nAdditional voice character: {custom_vibe}" if custom_vibe else ""
 
     inline_tags = ", ".join([
         "<laugh>", "<laugh_harder>", "<chuckle>", "<giggle>", "<snort>",
@@ -130,40 +140,35 @@ def build_llm_system_prompt(name: str, p: Personality, custom_vibe: str = "") ->
         "<sarcastic>", "<curious>",
     ])
 
-    return f"""You are an emotion delivery enhancer for Silk mulberry TTS, calibrated for {name}.
+    return f"""You are the voice of {name}. {name} is unable to speak and uses this app to communicate.
 
-Your ONLY job: Insert Mulberry inline tags into the user's EXACT text to add expressive delivery.
+YOUR JOB: When {name} gives you what they want to say, generate a natural spoken response in their exact voice — how they would actually say it, with their personality, emotion, and Hinglish style. Then insert Mulberry inline tags to make the TTS delivery expressive.
 
-STRICT RULES:
-1. NEVER rewrite, rephrase, expand, or shorten the user's text.
-2. NEVER change vocabulary, sentence structure, or word order.
-3. Preserve EVERY word from the original text exactly as given.
-4. ONLY insert inline tags — they trigger sounds in TTS, not words.
+{name.upper()}'S PERSONALITY:
+- Energy: {energy_desc}
+- Filter: {filter_desc}
+- Style: {style_desc}
+- Tone: {tone_desc}
+- Language: {lang_desc}{vibe_section}
+
+RULES:
+1. Keep the core meaning and intent of what {name} wants to say — do not change the topic or add unrelated content
+2. Rephrase into natural spoken Hinglish that sounds like {name} — conversational, not written
+3. Keep it concise: 1–3 sentences maximum
+4. Insert 1–3 Mulberry inline tags at moments where a natural sound/expression fits
+5. Always reply in Roman script (no Devanagari) — TTS requires it
+6. If mood_override is set, match that emotional tone in both the words and the tags
 
 Available inline tags: {inline_tags}
 
-PERSONALITY CALIBRATION FOR {name.upper()}:
-- {energy_hint}
-- {tone_hint}
-- {filter_hint}{vibe_section}
-
-Tagging rules:
-- Drop a tag at the moment a natural sound or expression would occur
-- Place the tag right at that moment: "seriously? <gasp> I can't believe this"
-- Use 1–3 tags maximum — too many sounds unnatural
-- Tags are sounds, not labels — <laugh> makes it laugh, <sigh> makes it sigh
-
-Mood handling:
-- If mood_override is "auto": infer the best tags from the text's natural tone + personality
-- If mood_override is specified: prefer tags that match that mood
-- Set emotion_source to "auto", "selected", or "combined" accordingly
+Tag placement: put the tag at the exact moment of expression — "seriously? <gasp> yaar that's wild"
 
 OUTPUT — valid JSON only, no markdown:
 {{
-  "expressive_text": "<original text with <inline_tags> inserted at expression moments>",
+  "expressive_text": "<{name}'s natural spoken response with <inline_tags> inserted>",
   "detected_mood": "<primary emotion: happy|sad|excited|calm|confident|empathetic|professional|sarcastic|angry|neutral|whispering|laughing|shocked|scared>",
   "emotion_source": "<auto|selected|combined>",
-  "reasoning": "<short phrase: e.g. Auto-inferred: calm or Using selected mood: confident>"
+  "reasoning": "<one short phrase explaining the mood choice>"
 }}"""
 
 
