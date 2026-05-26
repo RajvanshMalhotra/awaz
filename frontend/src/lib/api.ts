@@ -51,7 +51,19 @@ export interface DenyResponse {
   }
 }
 
+export interface Speaker {
+  speaker_id: string
+  name: string
+  relationship: string
+}
+
 export const api = {
+  async getSpeakers(): Promise<{ speakers: Speaker[] }> {
+    const r = await fetch('/pipeline/speakers')
+    if (!r.ok) throw new Error('Failed to fetch speakers')
+    return r.json()
+  },
+
   async getProfiles(): Promise<ProfilesResponse> {
     const r = await fetch('/onboarding/profiles')
     if (!r.ok) throw new Error('Failed to fetch profiles')
@@ -71,6 +83,22 @@ export const api = {
   async activateProfile(profileId: string): Promise<void> {
     const r = await fetch(`/onboarding/profiles/${profileId}/activate`, { method: 'PUT' })
     if (!r.ok) throw new Error('Failed to switch profile')
+  },
+
+  async processText(
+    text: string,
+    relationship: string,
+    moodOverride: string,
+    extraText?: string,
+  ): Promise<ProcessResponse> {
+    const fd = new FormData()
+    fd.append('text', text)
+    fd.append('relationship', relationship)
+    fd.append('mood_override', moodOverride)
+    if (extraText) fd.append('extra_text', extraText)
+    const r = await fetch('/pipeline/process-text', { method: 'POST', body: fd })
+    if (!r.ok) throw new Error(await r.text())
+    return r.json()
   },
 
   async processAudio(
@@ -124,6 +152,12 @@ export const api = {
   async deleteAllSpeakers(): Promise<{ deleted: number }> {
     const r = await fetch('/pipeline/speakers', { method: 'DELETE' })
     if (!r.ok) throw new Error('Failed to delete speakers')
+    return r.json()
+  },
+
+  async deleteProfile(profileId: string): Promise<ProfilesResponse> {
+    const r = await fetch(`/onboarding/profiles/${profileId}`, { method: 'DELETE' })
+    if (!r.ok) throw new Error('Failed to delete profile')
     return r.json()
   },
 }

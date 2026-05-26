@@ -9,7 +9,6 @@ import sys
 from core.user_profile import (
     user_profile_store,
     Personality,
-    VALID_VOICE_GENDERS,
 )
 
 # ─── Question bank ────────────────────────────────────────────────────────────
@@ -81,13 +80,6 @@ QUESTIONS = [
     },
 ]
 
-VOICE_OPTIONS = [
-    ("female",     "Female — voice 1  (default female)"),
-    ("female_alt", "Female — voice 2  (alternate female timbre)"),
-    ("male",       "Male   — voice 1  (default male)"),
-    ("male_deep",  "Male   — voice 2  (deeper male)"),
-]
-
 # Human-readable labels for personality summary
 PERSONALITY_LABELS = {
     "energy":    {"chaotic": "High energy / extroverted",  "chill": "Calm / introverted"},
@@ -146,7 +138,6 @@ def run_onboarding():
         divider("Existing Profile Found")
         p = user_profile_store.get()
         print(f"  Name    : {p.name}")
-        print(f"  Voice   : {p.voice_gender}")
         for dim, val in p.personality.to_dict().items():
             print(f"  {dim:10}: {PERSONALITY_LABELS[dim][val]}")
         redo = input("\n  Redo onboarding? (y/n): ").strip().lower()
@@ -193,24 +184,10 @@ def run_onboarding():
         label = PERSONALITY_LABELS[dim][val]
         print(f"  {dim:10} → {label}")
 
-    # ── Voice selection ──
-    divider("Voice")
-    print("  Pick the TTS voice for your Awaaz:\n")
-    for i, (_, label) in enumerate(VOICE_OPTIONS, 1):
-        print(f"    {i}. {label}")
-    while True:
-        raw = input("\n  Enter number: ").strip()
-        if raw.isdigit() and 1 <= int(raw) <= len(VOICE_OPTIONS):
-            voice_gender = VOICE_OPTIONS[int(raw) - 1][0]
-            break
-        print("  Invalid — try again.")
-    print(f"  ✓ Voice: {voice_gender}")
-
     # ── Save ──
     divider("Saving")
     profile = user_profile_store.save(
         name=name,
-        voice_gender=voice_gender,
         personality=personality,
     )
     print("  ✓ Saved to user_profile.json")

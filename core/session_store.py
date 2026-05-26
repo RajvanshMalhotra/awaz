@@ -15,8 +15,8 @@ class PipelineSession:
     original_request: ProcessRequest
     llm_result: LLMResult
     audio_bytes: bytes
-    voice_gender: Optional[str] = None          # set from onboarding / /process form field
     created_at: datetime = field(default_factory=datetime.utcnow)
+    tts_result: Optional[dict] = field(default=None)   # pre-computed TTS (speculative)
 
     def is_expired(self) -> bool:
         return datetime.utcnow() > self.created_at + timedelta(minutes=10)
@@ -34,7 +34,6 @@ class SessionStore:
         original_request: ProcessRequest,
         llm_result: LLMResult,
         audio_bytes: bytes,
-        voice_gender: Optional[str] = None,     # new — carries onboarding choice forward
     ) -> PipelineSession:
         session_id = str(uuid.uuid4())
         session = PipelineSession(
@@ -45,7 +44,6 @@ class SessionStore:
             original_request=original_request,
             llm_result=llm_result,
             audio_bytes=audio_bytes,
-            voice_gender=voice_gender,
         )
         self._store[session_id] = session
         return session

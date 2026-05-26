@@ -121,9 +121,8 @@ class SpeakerService:
           - no speakers are enrolled, or
           - the log-likelihood margin between top-1 and top-2 is below MIN_MARGIN
         """
-        embedding = await self.get_embedding(audio_bytes)
-
         if not self._store:
+            # Skip embedding extraction entirely — no speakers to compare against
             return SpeakerRecognitionResult(
                 speaker_id=None,
                 name="Unknown",
@@ -131,6 +130,8 @@ class SpeakerService:
                 similarity=0.0,
                 is_new_speaker=True,
             )
+
+        embedding = await self.get_embedding(audio_bytes)
 
         scores = self._score_all_speakers(embedding)  # speaker_id → log-likelihood
 
@@ -295,18 +296,49 @@ class SpeakerService:
 
     # ── Embedding extraction ───────────────────────────────────────────────────
 
+    @staticmethod
+    def _decode_to_wav(audio_bytes: bytes) -> bytes:
+        """
+        Transcode any browser audio format (WebM/Opus, MP4/AAC, …) to
+        16 kHz mono WAV using ffmpeg. soundfile can then read it natively.
+        """
+        import subprocess
+        result = subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "error",
+                "-i", "pipe:0",
+                "-f", "wav", "-ar", "16000", "-ac", "1",
+                "pipe:1",
+            ],
+            input=audio_bytes,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg decode failed: {result.stderr.decode()}")
+        return result.stdout
+
     def _extract_embedding(self, audio_bytes: bytes) -> np.ndarray:
         """Decode audio bytes and extract ECAPA-TDNN embedding."""
         import io
         import soundfile as sf
 
-        # soundfile handles WAV/FLAC/OGG without any native codec deps.
-        # torchaudio.load on Python 3.13 requires torchcodec (unavailable on macOS).
-        audio_np, sample_rate = sf.read(io.BytesIO(audio_bytes), dtype="float32", always_2d=True)
-        # soundfile returns (frames, channels) — transpose to (channels, frames) for torch
+        # Try soundfile directly (works for WAV/FLAC/OGG from test scripts).
+        # Browser MediaRecorder sends WebM/Opus which soundfile can't handle —
+        # transcode through ffmpeg first in that case.
+        try:
+            audio_np, sample_rate = sf.read(
+                io.BytesIO(audio_bytes), dtype="float32", always_2d=True
+            )
+        except Exception:
+            wav_bytes = self._decode_to_wav(audio_bytes)
+            audio_np, sample_rate = sf.read(
+                io.BytesIO(wav_bytes), dtype="float32", always_2d=True
+            )
+
+        # soundfile returns (frames, channels) — transpose to (channels, frames)
         audio_tensor = torch.from_numpy(audio_np.T)
 
-        # ECAPA expects 16kHz mono
+        # ECAPA expects 16kHz mono (ffmpeg path already normalises; WAV path may not)
         if sample_rate != 16000:
             resampler = torchaudio.transforms.Resample(
                 orig_freq=sample_rate, new_freq=16000
@@ -317,10 +349,10 @@ class SpeakerService:
         if audio_tensor.shape[0] > 1:
             audio_tensor = audio_tensor.mean(dim=0)
         else:
-            audio_tensor = audio_tensor.squeeze(0)  # (1, time) → (time,)
+            audio_tensor = audio_tensor.squeeze(0)
 
         # encode_batch expects (batch, time)
-        audio_tensor = audio_tensor.unsqueeze(0)  # → (1, time)
+        audio_tensor = audio_tensor.unsqueeze(0)
 
         with torch.no_grad():
             embedding = self._model.encode_batch(audio_tensor)
@@ -394,6 +426,14 @@ class SpeakerService:
     async def identify(self, audio_bytes: bytes) -> SpeakerRecognitionResult:
         """Alias for identify_speaker — matches test_voice.py call signature."""
         return await self.identify_speaker(audio_bytes)
+
+    def clear_all(self) -> int:
+        """Delete all enrolled speaker profiles. Returns count deleted."""
+        count = len(self._store)
+        self._store.clear()
+        if self._store_path.exists():
+            self._store_path.write_text("{}")
+        return count
 
 
 # ── Module-level singleton + factory ──────────────────────────────────────────

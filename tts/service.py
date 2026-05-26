@@ -507,113 +507,94 @@ tts/service.py — Silk mulberry TTS for Awaaz v2
 Voice description = profile.mulberry_description (personality base)
                   + emotion suffix (per-call mood layer)
 
-Speaker resolves automatically from profile.silk_speaker() — no need to
-pass speaker/gender per call unless overriding.
+Speaker is always speaker_1 — best baseline for description-driven customization.
 """
 
 from __future__ import annotations
 
-import re
-import asyncio
 import logging
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Optional
 
 import httpx
 
 from core.config import settings
-from core.user_profile import user_profile_store, GENDER_TO_SPEAKER
+from core.user_profile import user_profile_store
 
 logger = logging.getLogger(__name__)
 
 SILK_BASE    = "https://silk-api.rumik.ai"
 SILK_TTS_URL = f"{SILK_BASE}/v1/tts"
 
-SilkSpeaker = Literal["speaker_1", "speaker_2", "speaker_3", "speaker_4"]
-_VALID_SPEAKERS = {"speaker_1", "speaker_2", "speaker_3", "speaker_4"}
+# Persistent client — avoids TLS handshake overhead on every TTS call (~400ms saved)
+_http_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(timeout=30.0)
+    return _http_client
+
+SILK_SPEAKER = "speaker_1"
 
 # ─── Emotion → description suffix ────────────────────────────────────────────
 # Appended to the profile's base voice description on every call.
 # "neutral" adds nothing so the base voice comes through unmodified.
 
-EMOTION_SUFFIX: dict[str, str] = {
-    "laughing":   ", laughing and highly amused",
-    "shocked":    ", shocked and surprised, slightly breathless",
-    "whispering": ", whispering softly, hushed",
-    "sad":        ", sad and subdued",
-    "angry":      ", frustrated and sharp",
-    "scared":     ", nervous and anxious",
-    "sarcastic":  ", deadpan and dry",
-    "happy":      ", cheerful and warm",
-    "neutral":    "",
-    "excited":    ", excited and energetic",
+# Maps detected_mood → Mulberry description emotion word (from vd.md vocabulary)
+# Mulberry understands: neutral, energetic, excited, sad, sarcastic, dry, crying, angry
+MOOD_TO_MULBERRY_EMOTION: dict[str, str] = {
+    "happy":        "energetic",
+    "sad":          "sad",
+    "excited":      "excited",
+    "calm":         "neutral",
+    "confident":    "energetic",
+    "empathetic":   "neutral",
+    "professional": "neutral",
+    "sarcastic":    "sarcastic, dry",
+    "angry":        "angry",
+    "neutral":      "neutral",
+    "whispering":   "neutral",
+    "laughing":     "energetic",
+    "shocked":      "excited",
+    "scared":       "neutral",
 }
-EMOTION_DESCRIPTION_SUFFIX = EMOTION_SUFFIX  # backward-compat alias
 
-DEFAULT_DESCRIPTION = "expressive conversational Hinglish speaker"
-
-_EMOTION_BLOCK_RE = re.compile(r"\((?P<emotion>[a-z]+)\)(?P<text>[^(]+)", re.IGNORECASE)
+DEFAULT_DESCRIPTION = "a warm 20s hindi accent voice, conversational pacing, casual register"
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def _parse_emotion_and_text(expressive_text: str) -> tuple[str, str]:
+def _build_description(detected_mood: str) -> str:
     """
-    Returns (dominant_emotion, clean_text).
-    dominant_emotion — first (emotion) tag, lowercased
-    clean_text       — all (emotion) markers stripped
-    """
-    blocks = _EMOTION_BLOCK_RE.findall(expressive_text)
-    if not blocks:
-        return "neutral", expressive_text.strip()
-    dominant = blocks[0][0].lower()
-    clean    = _EMOTION_BLOCK_RE.sub(lambda m: m.group("text"), expressive_text).strip()
-    return dominant, clean
-
-
-def _build_description(emotion: str) -> str:
-    """
-    Profile base description + emotion suffix.
+    Profile base description (from onboarding) + Mulberry emotion word.
     Falls back to DEFAULT_DESCRIPTION if no profile exists.
+    Text already contains Mulberry inline tags (<laugh>, <sigh>, etc.) —
+    the description sets the overall character; tags handle specific moments.
     """
-    profile = user_profile_store.get()
-    base    = profile.mulberry_description if profile else DEFAULT_DESCRIPTION
-    suffix  = EMOTION_SUFFIX.get(emotion, "")
-    return base + suffix
+    profile     = user_profile_store.get()
+    base        = profile.mulberry_description if profile else DEFAULT_DESCRIPTION
+    emotion_mod = MOOD_TO_MULBERRY_EMOTION.get(detected_mood.lower(), "neutral")
 
-
-def _resolve_speaker(
-    speaker: Optional[str] = None,
-    gender:  Optional[str] = None,
-) -> SilkSpeaker:
-    """
-    Priority: explicit arg → gender arg → profile → env default → speaker_1
-    """
-    if speaker in _VALID_SPEAKERS:
-        return speaker  # type: ignore[return-value]
-    if gender and gender in GENDER_TO_SPEAKER:
-        return GENDER_TO_SPEAKER[gender]
-    profile = user_profile_store.get()
-    if profile:
-        return profile.silk_speaker()
-    default = getattr(settings, "silk_default_speaker", "speaker_1")
-    return default if default in _VALID_SPEAKERS else "speaker_1"
+    # Avoid duplicating the emotion word if the base already contains it
+    if emotion_mod and emotion_mod not in base:
+        return f"{base}, {emotion_mod}"
+    return base
 
 
 # ─── Payload builder (also used for debug/logging) ────────────────────────────
 
-def build_tts_payload(
-    expressive_text: str,
-    speaker:   Optional[str] = None,
-    gender:    Optional[str] = None,
-    f0_up_key: int = 0,
-) -> dict:
-    emotion, clean_text = _parse_emotion_and_text(expressive_text)
+def build_tts_payload(expressive_text: str, detected_mood: str = "neutral", f0_up_key: int = 0) -> dict:
+    """
+    Build the Mulberry API payload.
+    expressive_text already contains <inline_tags> from the LLM — sent as-is.
+    detected_mood drives the voice description's emotion word.
+    """
     return {
         "model":       "mulberry",
-        "text":        clean_text,
-        "description": _build_description(emotion),
-        "speaker":     _resolve_speaker(speaker=speaker, gender=gender),
+        "text":        expressive_text,          # inline tags stay in the text
+        "description": _build_description(detected_mood),
         "f0_up_key":   f0_up_key,
     }
 
@@ -622,53 +603,33 @@ def build_tts_payload(
 
 async def synthesize(
     expressive_text: str,
-    speaker:   Optional[str] = None,
-    gender:    Optional[str] = None,
-    f0_up_key: Optional[int] = None,
+    detected_mood: str = "neutral",
     save_path: Optional[Path] = None,
 ) -> bytes:
-    """
-    Call Silk mulberry and return raw WAV bytes (24 kHz mono).
-
-    speaker / gender are optional overrides — if omitted the profile is used.
-
-    Raises:
-        RuntimeError   — SILK_API_KEY missing
-        httpx.HTTPStatusError — non-2xx from Silk
-    """
+    """Call Silk mulberry and return raw WAV bytes (24 kHz mono)."""
     api_key = getattr(settings, "silk_api_key", None)
     if not api_key:
         raise RuntimeError("SILK_API_KEY is not set in .env")
 
-    resolved_f0 = f0_up_key if f0_up_key is not None else int(
-        getattr(settings, "silk_default_f0_up_key", 0)
-    )
-
-    payload = build_tts_payload(
-        expressive_text,
-        speaker=speaker,
-        gender=gender,
-        f0_up_key=resolved_f0,
-    )
+    payload = build_tts_payload(expressive_text, detected_mood)
 
     logger.info(
-        "TTS → speaker=%s emotion=%s desc=%r text=%r",
-        payload["speaker"],
-        _parse_emotion_and_text(expressive_text)[0],
+        "TTS → mood=%s desc=%r text=%r",
+        detected_mood,
         payload["description"][:80],
-        payload["text"][:60],
+        payload["text"][:80],
     )
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            SILK_TTS_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type":  "application/json",
-            },
-            json=payload,
-        )
-        response.raise_for_status()
+    client = _get_http_client()
+    response = await client.post(
+        SILK_TTS_URL,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type":  "application/json",
+        },
+        json=payload,
+    )
+    response.raise_for_status()
 
     wav_bytes = response.content
     logger.info("TTS ← %d bytes", len(wav_bytes))
@@ -686,40 +647,15 @@ async def synthesize(
 async def generate_tts_response(
     expressive_text: str,
     session_id: str,
-    speaker:    Optional[str] = None,
-    gender:     Optional[str] = None,
-    f0_up_key:  Optional[int] = None,
+    detected_mood: str = "neutral",
     output_dir: str = "tts_output",
 ) -> dict:
-    """
-    High-level helper for the /approve route.
-    speaker / gender optional — profile is the default source for both.
-
-    Returns:
-        tts_payload     — exact JSON sent to Silk
-        tts_audio_url   — local WAV path
-        expressive_text — original LLM text
-        audio_bytes     — raw WAV bytes
-    """
+    """High-level helper for the /approve route."""
     output_path = Path(output_dir) / f"{session_id}.wav"
-
-    resolved_f0 = f0_up_key if f0_up_key is not None else int(
-        getattr(settings, "silk_default_f0_up_key", 0)
-    )
-
-    # synthesize resolves speaker/gender/profile internally — no need to
-    # duplicate resolve_speaker here like the old version did
-    wav_bytes = await synthesize(
-        expressive_text,
-        speaker=speaker,
-        gender=gender,
-        f0_up_key=resolved_f0,
-        save_path=output_path,
-    )
-
+    wav_bytes = await synthesize(expressive_text, detected_mood, save_path=output_path)
     return {
-        "tts_payload":     build_tts_payload(expressive_text, speaker=speaker, gender=gender, f0_up_key=resolved_f0),
-        "tts_audio_url":   str(output_path),
+        "tts_payload":     build_tts_payload(expressive_text, detected_mood),
+        "tts_audio_url":   f"/{output_path}",
         "expressive_text": expressive_text,
         "audio_bytes":     wav_bytes,
     }
@@ -728,18 +664,16 @@ async def generate_tts_response(
 # ─── Smoke test — python -m tts.service ──────────────────────────────────────
 
 if __name__ == "__main__":
-    sample = "(laughing)Hahaha yaar kya bol raha hai... (shocked)Wait seriously?!"
+    sample = "Hahaha yaar kya bol raha hai <laugh> seriously? <gasp> Wait what?!"
+    payload = build_tts_payload(sample, detected_mood="laughing")
 
-    emotion, clean = _parse_emotion_and_text(sample)
-    payload = build_tts_payload(sample)
-
-    print(f"Emotion     : {emotion}")
-    print(f"Clean text  : {clean}")
     print(f"Description : {payload['description']}")
-    print(f"Speaker     : {payload['speaker']}")
+    print(f"Text        : {payload['text']}")
+
+    import asyncio
 
     async def _test():
-        wav = await synthesize(sample, save_path=Path("test_output.wav"))
+        wav = await synthesize(sample, detected_mood="laughing", save_path=Path("test_output.wav"))
         print(f"✓ {len(wav):,} bytes → test_output.wav")
 
     asyncio.run(_test())
