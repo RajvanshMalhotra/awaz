@@ -140,7 +140,7 @@ app.include_router(pipeline_router)
 # Mount the built React frontend as SPA
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 if os.path.isdir(FRONTEND_DIST):
-    app.mount("/ui", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="frontend-assets")
 
 
 @app.get("/health")
@@ -150,6 +150,7 @@ async def health():
 
 @app.get("/")
 async def root():
-    if os.path.exists("frontend.html"):
-        return FileResponse("frontend.html")
+    index = os.path.join(FRONTEND_DIST, "index.html")
+    if os.path.exists(index):
+        return FileResponse(index)
     return {"service": "Awaaz API", "docs": "/docs"}
