@@ -230,7 +230,9 @@
 #     )
 
 import asyncio
+import logging
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from pydantic import BaseModel
 
 from core.models import (
     ProcessResponse, ApproveRequest, ApproveResponse,
@@ -241,9 +243,34 @@ from core.session_store import session_store
 from stt.service import get_stt_service
 from speaker.service import get_speaker_service
 from llm.service import get_llm_service
-from tts.service import generate_tts_response, build_tts_payload
+from tts.service import generate_tts_response
+from sign.service import get_sign_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
+
+
+async def _precompute_tts(session_id: str) -> None:
+    """
+    Fire TTS immediately after /process so it's ready when the user clicks Approve.
+    Runs as a background task — failure is logged and silently ignored.
+    """
+    try:
+        session = session_store.get(session_id)
+        if not session:
+            return
+        result = await generate_tts_response(
+            expressive_text=session.llm_result.expressive_text,
+            detected_mood=session.llm_result.detected_mood,
+            session_id=session_id,
+        )
+        # Re-fetch in case session expired while TTS was running
+        session = session_store.get(session_id)
+        if session:
+            session.tts_result = result
+            logger.info("TTS precomputed for session %s", session_id)
+    except Exception as exc:
+        logger.warning("TTS precompute failed for %s: %s", session_id, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -257,11 +284,6 @@ async def process_audio(
     mood_override: Mood = Form(Mood.auto),
     extra_text: str | None = Form(None),
     speaker_name_if_new: str | None = Form(None),
-    # Onboarding voice preference — stored in user profile on the frontend,
-    # forwarded here so TTS uses the right speaker from the very first request.
-    # Values: "female" | "female_alt" | "male" | "male_deep"
-    # or a raw Silk preset: "speaker_1" | "speaker_2" | "speaker_3" | "speaker_4"
-    voice_gender: str | None = Form(None, description="User's onboarding voice choice"),
 ):
     """
     Main pipeline endpoint. Accepts audio + context, returns transcript,
@@ -282,11 +304,25 @@ async def process_audio(
     speaker_svc = get_speaker_service()
     llm = get_llm_service()
 
-    # Run STT and speaker ID concurrently — they're independent
-    transcript_result, speaker_result = await asyncio.gather(
-        stt.transcribe(audio_bytes, filename),
-        speaker_svc.identify(audio_bytes),
-    )
+    # Speaker ID starts immediately in the background (short-circuits if store is empty)
+    speaker_task = asyncio.create_task(speaker_svc.identify(audio_bytes))
+
+    # STT is the prerequisite for LLM — await it first
+    transcript_result = await stt.transcribe(audio_bytes, filename)
+
+    # Fire LLM as soon as transcript is ready, while speaker ID is still running.
+    # Use the frontend-provided relationship as a proxy; the actual speaker relationship
+    # appears in the response metadata but doesn't block text generation.
+    llm_task = asyncio.create_task(llm.generate(
+        transcript=transcript_result.transcript,
+        speaker_name=None,
+        relationship=relationship,
+        mood_override=mood_override,
+        extra_text=extra_text,
+    ))
+
+    # Await both — whichever is slower determines the wall-clock time
+    speaker_result, llm_result = await asyncio.gather(speaker_task, llm_task)
 
     # If user pre-named a new speaker in the same request, auto-save
     if speaker_result.is_new_speaker and speaker_name_if_new:
@@ -301,7 +337,7 @@ async def process_audio(
             is_new_speaker=False,
         )
 
-    # Resolve effective relationship
+    # Resolve effective relationship (for response metadata)
     if speaker_result.relationship is not None:
         effective_relationship = speaker_result.relationship
         relationship_source = "speaker_profile"
@@ -312,14 +348,6 @@ async def process_audio(
         effective_relationship = Relationship.friend
         relationship_source = "default"
 
-    llm_result = await llm.generate(
-        transcript=transcript_result.transcript,
-        speaker_name=speaker_result.name,
-        relationship=effective_relationship,
-        mood_override=mood_override,
-        extra_text=extra_text,
-    )
-
     session = session_store.create(
         transcript=transcript_result.transcript,
         detected_language=transcript_result.detected_language,
@@ -329,8 +357,12 @@ async def process_audio(
         ),
         llm_result=llm_result,
         audio_bytes=audio_bytes,
-        voice_gender=voice_gender,          # persisted so /approve doesn't need it again
     )
+
+    # Speculative TTS: start synthesis now so it's ready when user clicks Approve.
+    # Runs concurrently with the user reading the transcript — typical review time
+    # is 3-10 seconds, which means TTS is done before Approve is clicked.
+    asyncio.create_task(_precompute_tts(session.session_id))
 
     return ProcessResponse(
         transcript=transcript_result.transcript,
@@ -339,6 +371,56 @@ async def process_audio(
         save_voice_prompt=speaker_result.is_new_speaker,
         effective_relationship=effective_relationship,
         relationship_source=relationship_source,
+        llm=llm_result,
+        session_id=session.session_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /pipeline/process-text  — keyboard / sign-language text input
+# Skips STT and speaker ID entirely: text → LLM → TTS (speculative)
+# Typical latency: ~1-2 s vs ~6-10 s for the audio path
+# ---------------------------------------------------------------------------
+
+@router.post("/process-text", response_model=ProcessResponse)
+async def process_text(
+    text: str = Form(...),
+    relationship: Relationship = Form(Relationship.friend),
+    mood_override: Mood = Form(Mood.auto),
+    extra_text: str | None = Form(None),
+):
+    llm = get_llm_service()
+    llm_result = await llm.generate(
+        transcript=text,
+        speaker_name=None,
+        relationship=relationship,
+        mood_override=mood_override,
+        extra_text=extra_text,
+    )
+
+    empty_speaker = SpeakerRecognitionResult(
+        speaker_id=None, name=None, relationship=None,
+        similarity=0.0, is_new_speaker=False,
+    )
+
+    session = session_store.create(
+        transcript=text,
+        detected_language=None,
+        speaker=empty_speaker,
+        original_request=_make_process_request(relationship, mood_override, extra_text, None),
+        llm_result=llm_result,
+        audio_bytes=b"",
+    )
+
+    asyncio.create_task(_precompute_tts(session.session_id))
+
+    return ProcessResponse(
+        transcript=text,
+        detected_language=None,
+        speaker=empty_speaker,
+        save_voice_prompt=False,
+        effective_relationship=relationship,
+        relationship_source="frontend_override",
         llm=llm_result,
         session_id=session.session_id,
     )
@@ -362,14 +444,18 @@ async def approve(body: ApproveRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
-    # Prefer explicit override in approve body, fall back to what /process stored
-    voice_gender = getattr(body, "voice_gender", None) or getattr(session, "voice_gender", None)
-
-    tts_result = await generate_tts_response(
-        expressive_text=session.llm_result.expressive_text,
-        session_id=body.session_id,
-        gender=voice_gender,        # e.g. "female" / "male" — resolved inside tts.service
-    )
+    if session.tts_result:
+        # Fast path: speculative TTS was precomputed during review — instant response
+        logger.info("Approve: using precomputed TTS for %s", body.session_id)
+        tts_result = session.tts_result
+    else:
+        # Slow path: TTS wasn't ready yet (user approved very quickly)
+        logger.info("Approve: TTS not ready yet, computing now for %s", body.session_id)
+        tts_result = await generate_tts_response(
+            expressive_text=session.llm_result.expressive_text,
+            detected_mood=session.llm_result.detected_mood,
+            session_id=body.session_id,
+        )
 
     session_store.delete(body.session_id)
 
@@ -409,7 +495,6 @@ async def deny(body: DenyRequest):
         extra_text=effective_extra,
     )
 
-    # Carry voice_gender forward so the next /approve still uses the right voice
     new_session = session_store.create(
         transcript=session.transcript,
         detected_language=session.detected_language,
@@ -419,8 +504,10 @@ async def deny(body: DenyRequest):
         ),
         llm_result=new_llm_result,
         audio_bytes=session.audio_bytes,
-        voice_gender=getattr(session, "voice_gender", None),
     )
+
+    # Precompute TTS for the retry session too
+    asyncio.create_task(_precompute_tts(new_session.session_id))
 
     return DenyResponse(
         llm=new_llm_result,
@@ -459,6 +546,50 @@ async def save_speaker(
         relationship=profile.relationship,
         message=f"Voice profile saved for {profile.name} ({relationship.value})",
     )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /pipeline/speakers  — wipe all enrolled voice profiles
+# ---------------------------------------------------------------------------
+
+@router.get("/speakers")
+async def list_speakers():
+    """List all enrolled voice profiles (no embeddings)."""
+    svc = get_speaker_service()
+    return {
+        "speakers": [
+            {"speaker_id": s.speaker_id, "name": s.name, "relationship": s.relationship.value}
+            for s in svc.get_all_speakers()
+        ]
+    }
+
+
+@router.delete("/speakers")
+async def delete_all_speakers():
+    speaker_svc = get_speaker_service()
+    count = speaker_svc.clear_all()
+    return {"deleted": count, "message": f"Cleared {count} speaker profile(s)"}
+
+
+# ---------------------------------------------------------------------------
+# Sign language
+# ---------------------------------------------------------------------------
+
+class SignLanguageRequest(BaseModel):
+    landmarks: list[list[list[float]]]  # frames × 21 landmarks × [x, y, z]
+
+
+class SignLanguageResponse(BaseModel):
+    text: str
+
+
+@router.post("/sign-language", response_model=SignLanguageResponse)
+async def sign_language(body: SignLanguageRequest) -> SignLanguageResponse:
+    if not body.landmarks:
+        raise HTTPException(status_code=422, detail="No landmark frames provided")
+    svc = get_sign_service()
+    text = await asyncio.to_thread(svc.classify, body.landmarks)
+    return SignLanguageResponse(text=text)
 
 
 # ---------------------------------------------------------------------------
