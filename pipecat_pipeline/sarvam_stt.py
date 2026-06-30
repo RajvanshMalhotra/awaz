@@ -3,7 +3,6 @@ import logging
 
 from pipecat.frames.frames import (
     Frame,
-    EndFrame,
     InputAudioRawFrame,
     TranscriptionFrame,
     VADUserStoppedSpeakingFrame,
@@ -36,7 +35,7 @@ class SarvamSTTProcessor(FrameProcessor):
             if self._audio_buffer:
                 audio_bytes = b"".join(self._audio_buffer)
                 self._audio_buffer = []
-                asyncio.create_task(self._transcribe_and_push(audio_bytes))
+                self.create_task(self._transcribe_and_push(audio_bytes))
             await self.push_frame(frame, direction)
             return
 
