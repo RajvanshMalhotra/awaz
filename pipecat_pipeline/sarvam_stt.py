@@ -1,5 +1,6 @@
-import asyncio
+import io
 import logging
+import wave
 
 from pipecat.frames.frames import (
     Frame,
@@ -45,7 +46,14 @@ class SarvamSTTProcessor(FrameProcessor):
         try:
             from stt.service import get_stt_service
             stt = get_stt_service()
-            result = await stt.transcribe(audio_bytes, "ambient.wav")
+            # Wrap raw PCM in WAV container (Sarvam expects audio/wav, not raw PCM)
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as w:
+                w.setnchannels(_CHANNELS)
+                w.setsampwidth(2)  # Int16 = 2 bytes
+                w.setframerate(_SAMPLE_RATE)
+                w.writeframes(audio_bytes)
+            result = await stt.transcribe(buf.getvalue(), "ambient.wav")
             if result.transcript.strip():
                 logger.debug("[ambient] transcript: %r", result.transcript)
                 await self.push_frame(

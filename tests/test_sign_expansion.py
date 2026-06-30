@@ -1,6 +1,5 @@
-import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 @pytest.mark.asyncio
 async def test_generate_sign_expansion_streams_tokens():
