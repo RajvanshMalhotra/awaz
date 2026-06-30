@@ -57,6 +57,7 @@ You are a voice assistant for someone who is unable to speak.
 YOUR JOB depends on the input prefix:
 - "Reply to: ..." — someone said this to the user. Generate what the user would say back in natural Hinglish.
 - "Express: ..." — the user typed what they want to say. Rephrase it naturally and add Mulberry tags.
+- "Signed words: ..." — the user signed these ISL words. Generate what they would say in natural Hinglish. The signed words are the meaning anchor — do not change the topic. Use accepted phrase examples if provided.
 
 RULES:
 1. Keep the core meaning — do not change the topic
@@ -169,6 +170,61 @@ class LLMService:
         """Stream raw JSON tokens — caller extracts fields as they arrive."""
         prompt = self._build_prompt(
             transcript, relationship, speaker_name, mood_override, extra_text, mode
+        )
+        stream = await self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": self._system_prompt},
+                {"role": "user",   "content": prompt},
+            ],
+            temperature=0.7,
+            max_tokens=80,
+            response_format={"type": "json_object"},
+            stream=True,
+        )
+        async for chunk in stream:
+            token = chunk.choices[0].delta.content or ""
+            if token:
+                yield token
+
+    def _build_sign_prompt(
+        self,
+        signed_words: list[str],
+        context: list[str],
+        accepted_phrases: list[str],
+        mood_override: str = "auto",
+    ) -> str:
+        lines = [
+            f'Signed words: {", ".join(signed_words)}',
+            f"mood_override: {mood_override}",
+        ]
+        if context:
+            lines.append("Recent conversation (others said):")
+            for turn in context[-3:]:
+                lines.append(f'  - "{turn}"')
+        if accepted_phrases:
+            lines.append("How this user has expressed similar things before:")
+            for phrase in accepted_phrases[:3]:
+                lines.append(f'  - "{phrase}"')
+        return "\n".join(lines)
+
+    async def generate_sign_expansion(
+        self,
+        signed_words: list[str],
+        context: list[str] | None = None,
+        accepted_phrases: list[str] | None = None,
+        mood_override: str = "auto",
+    ) -> AsyncGenerator[str, None]:
+        """Stream JSON tokens for a sign-input expansion.
+
+        Signed words are the anchor — the LLM must not change the core meaning.
+        Context and accepted_phrases are injected to personalise the output.
+        """
+        prompt = self._build_sign_prompt(
+            signed_words=signed_words,
+            context=context or [],
+            accepted_phrases=accepted_phrases or [],
+            mood_override=mood_override,
         )
         stream = await self._client.chat.completions.create(
             model=self._model,
