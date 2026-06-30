@@ -86,6 +86,7 @@ from fastapi.responses import FileResponse
 from api.ambient_ws import router as ambient_ws_router
 from api.onboarding import router as onboarding_router
 from api.pipeline import router as pipeline_router
+from api.sign_ws import router as sign_ws_router
 from api.ws import router as ws_router
 from core.session_store import session_store
 
@@ -136,6 +137,7 @@ app.include_router(onboarding_router)
 app.include_router(pipeline_router)
 app.include_router(ws_router)
 app.include_router(ambient_ws_router)
+app.include_router(sign_ws_router)
 
 # Serve built React SPA — assets at /assets, catch-all returns index.html
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
