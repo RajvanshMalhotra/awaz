@@ -5,16 +5,10 @@
 Awaaz gives non-verbal and speech-impaired users a way to talk — sign a gesture or type a thought, and Awaaz turns it into natural, expressive spoken Hinglish. Not a flat text-to-speech readout: the right emotion, the right tone for who you're talking to, so the voice sounds like *you*, not a robot.
 
 <p align="center">
-  <a href="docs/media/demo.mp4">
-    <img src="docs/media/demo-poster.jpg" alt="Watch the Awaaz demo" width="700">
-  </a>
+  <img src="docs/media/demo.gif" alt="Awaaz demo" width="640">
   <br>
-  <em>Click the thumbnail to watch the demo (opens the video on GitHub).</em>
+  <em><a href="docs/media/demo.mp4">Watch with sound (full quality)</a></em>
 </p>
-
-<video src="docs/media/demo.mp4" controls width="700" poster="docs/media/demo-poster.jpg">
-  Your viewer doesn't render inline video — <a href="docs/media/demo.mp4">open the demo directly</a>.
-</video>
 
 ---
 
